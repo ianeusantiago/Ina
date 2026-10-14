@@ -12,7 +12,7 @@ type Status =
 
 const report = (e: unknown) => console.error("[pty]", e);
 
-export function TerminalPane({ title }: { title: string }) {
+export function TerminalPane({ title, workspaceId }: { title: string; workspaceId: number }) {
   const { t } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
   const sessionId = useRef<string | null>(null);
@@ -43,7 +43,7 @@ export function TerminalPane({ title }: { title: string }) {
     observer.observe(el);
 
     setStatus({ kind: "starting" });
-    spawnShell(id, term.cols, term.rows, (msg) => {
+    spawnShell(workspaceId, id, term.cols, term.rows, (msg) => {
       if (!alive) return;
       if (msg.type === "output") term.write(new Uint8Array(msg.data));
       else setStatus({ kind: "exited", code: msg.code });
@@ -59,7 +59,7 @@ export function TerminalPane({ title }: { title: string }) {
       term.dispose();
       killPty(id).catch(() => undefined); // already exited is fine
     };
-  }, [generation]);
+  }, [generation, workspaceId]);
 
   const label =
     status.kind === "running"

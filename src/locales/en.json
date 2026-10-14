@@ -1,5 +1,7 @@
 {
-  "app": { "name": "INA" },
+  "app": {
+    "name": "INA"
+  },
   "terminal": {
     "restart": "Restart",
     "kill": "Stop",
@@ -7,5 +9,13 @@
     "exited": "Exited (code {{code}})",
     "exitedUnknown": "Exited",
     "spawnError": "Failed to start session: {{error}}"
+  },
+  "workspaces": {
+    "title": "Workspaces",
+    "empty": "No workspaces yet",
+    "addLabel": "Add folder path",
+    "add": "Add",
+    "remove": "Remove {{name}}",
+    "selectHint": "Select or add a workspace to open a terminal."
   }
 }

@@ -1,5 +1,7 @@
 {
-  "app": { "name": "INA" },
+  "app": {
+    "name": "INA"
+  },
   "terminal": {
     "restart": "Reiniciar",
     "kill": "Parar",
@@ -7,5 +9,13 @@
     "exited": "Encerrado (código {{code}})",
     "exitedUnknown": "Encerrado",
     "spawnError": "Falha ao iniciar sessão: {{error}}"
+  },
+  "workspaces": {
+    "title": "Workspaces",
+    "empty": "Nenhum workspace ainda",
+    "addLabel": "Adicionar caminho da pasta",
+    "add": "Adicionar",
+    "remove": "Remover {{name}}",
+    "selectHint": "Selecione ou adicione um workspace para abrir um terminal."
   }
 }

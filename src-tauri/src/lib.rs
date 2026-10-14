@@ -1,5 +1,6 @@
 mod policy;
 mod pty;
+mod store;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,8 +8,9 @@ use std::sync::Arc;
 use policy::Program;
 use pty::{PtyEvent, PtyManager};
 use serde::Serialize;
-use tauri::State;
+use store::{Store, Workspace};
 use tauri::ipc::Channel;
+use tauri::{Manager, State};
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -34,21 +36,24 @@ fn valid_id(id: &str) -> Result<(), String> {
 #[tauri::command]
 fn pty_spawn_shell(
     pty: State<'_, PtyManager>,
+    store: State<'_, Store>,
+    workspace_id: i64,
     id: String,
     cols: u16,
     rows: u16,
     on_event: Channel<PtyMessage>,
 ) -> Result<(), String> {
     valid_id(&id)?;
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .ok_or("USERPROFILE not set")?;
+    let root = store
+        .get_workspace(workspace_id)
+        .map_err(|e| e.to_string())?
+        .root();
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let mut spec = policy::authorize(
         Program::Shell,
         vec!["-NoLogo".into()],
-        &home,
-        &home,
+        &root,
+        &root,
         pty.count(),
         &path_var,
     )
@@ -83,16 +88,42 @@ fn pty_kill(pty: State<'_, PtyManager>, id: String) -> Result<(), String> {
     pty.kill(&id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn workspace_list(store: State<'_, Store>) -> Result<Vec<Workspace>, String> {
+    store.list_workspaces().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn workspace_add(store: State<'_, Store>, path: String) -> Result<Workspace, String> {
+    store
+        .add_workspace(&PathBuf::from(path))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn workspace_remove(store: State<'_, Store>, id: i64) -> Result<(), String> {
+    store.remove_workspace(id).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
+        .setup(|app| {
+            let dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&dir)?;
+            app.manage(Store::open(&dir.join("ina.db"))?);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             pty_spawn_shell,
             pty_write,
             pty_resize,
-            pty_kill
+            pty_kill,
+            workspace_list,
+            workspace_add,
+            workspace_remove
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

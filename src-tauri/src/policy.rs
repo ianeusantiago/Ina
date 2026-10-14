@@ -54,9 +54,19 @@ pub fn validate_cwd(root: &Path, cwd: &Path) -> Result<PathBuf, PolicyError> {
     let root = root.canonicalize().map_err(|_| bad())?;
     let cwd = cwd.canonicalize().map_err(|_| bad())?;
     if cwd.is_dir() && cwd.starts_with(&root) {
-        Ok(cwd)
+        Ok(simplify(cwd))
     } else {
         Err(bad())
+    }
+}
+
+/// Turn a canonical `\\?\C:\...` path into `C:\...` (child processes and users expect the plain
+/// form). UNC and other verbatim forms are kept as-is.
+pub fn simplify(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => p,
     }
 }
 
@@ -144,6 +154,14 @@ mod tests {
         let sibling = PathBuf::from(format!("{}-evil", root.display()));
         fs::create_dir_all(&sibling).unwrap();
         assert!(validate_cwd(&root, &sibling).is_err());
+    }
+
+    #[test]
+    fn simplify_strips_only_drive_verbatim_prefix() {
+        let p = |s: &str| PathBuf::from(s);
+        assert_eq!(simplify(p(r"\\?\C:\a")), p(r"C:\a"));
+        assert_eq!(simplify(p(r"\\?\UNC\srv\x")), p(r"\\?\UNC\srv\x"));
+        assert_eq!(simplify(p(r"C:\a")), p(r"C:\a"));
     }
 
     #[test]

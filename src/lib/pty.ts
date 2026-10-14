@@ -4,6 +4,7 @@ export type PtyMessage =
   { type: "output"; data: number[] } | { type: "exited"; code: number | null };
 
 export function spawnShell(
+  workspaceId: number,
   id: string,
   cols: number,
   rows: number,
@@ -11,7 +12,7 @@ export function spawnShell(
 ): Promise<null> {
   const channel = new Channel<PtyMessage>();
   channel.onmessage = onEvent;
-  return invoke<null>("pty_spawn_shell", { id, cols, rows, onEvent: channel });
+  return invoke<null>("pty_spawn_shell", { workspaceId, id, cols, rows, onEvent: channel });
 }
 
 export const writePty = (id: string, data: string) => invoke<null>("pty_write", { id, data });
