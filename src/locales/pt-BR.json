@@ -1,0 +1,11 @@
+{
+  "app": { "name": "INA" },
+  "terminal": {
+    "restart": "Reiniciar",
+    "kill": "Parar",
+    "running": "Em execução",
+    "exited": "Encerrado (código {{code}})",
+    "exitedUnknown": "Encerrado",
+    "spawnError": "Falha ao iniciar sessão: {{error}}"
+  }
+}

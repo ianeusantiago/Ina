@@ -1,0 +1,20 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --color-ink: #0b0b0c;
+  --color-panel: #141416;
+  --color-line: #26262a;
+  --color-muted: #8a8a93;
+  --color-accent: #9ca3af;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-ink);
+  color: #e4e4e7;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+}

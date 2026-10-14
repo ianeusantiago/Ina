@@ -1,0 +1,11 @@
+{
+  "app": { "name": "INA" },
+  "terminal": {
+    "restart": "Restart",
+    "kill": "Stop",
+    "running": "Running",
+    "exited": "Exited (code {{code}})",
+    "exitedUnknown": "Exited",
+    "spawnError": "Failed to start session: {{error}}"
+  }
+}
