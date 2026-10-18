@@ -246,12 +246,23 @@ async fn team_status(
 ) -> Result<Vec<AgentBranch>, String> {
     let (git, team, _) = team_git(&store, &plans, plan_id)?;
     blocking(move || {
-        team.into_iter()
-            .map(|(agent_id, wt)| {
-                let status = git.status(&wt).map_err(|e| e.to_string())?;
-                Ok(AgentBranch { agent_id, status })
-            })
-            .collect()
+        // Independent read-only git calls, one worktree each: run them side by side.
+        std::thread::scope(|s| {
+            let handles: Vec<_> = team
+                .into_iter()
+                .map(|(agent_id, wt)| {
+                    let git = &git;
+                    s.spawn(move || {
+                        let status = git.status(&wt).map_err(|e| e.to_string())?;
+                        Ok(AgentBranch { agent_id, status })
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().map_err(|_| "git status panicked".to_string())?)
+                .collect()
+        })
     })
     .await
 }
