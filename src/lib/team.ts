@@ -26,3 +26,5 @@ export const ORCHESTRATOR_ID = "orchestrator";
 export const generatePlan = (workspaceId: number, request: string) =>
   invoke<PlanDraft>("plan_generate", { workspaceId, request });
 export const approvePlan = (planId: number) => invoke<null>("plan_approve", { planId });
+export const workspaceTrusted = (workspaceId: number) =>
+  invoke<boolean>("workspace_trusted", { workspaceId });

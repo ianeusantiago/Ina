@@ -2,6 +2,7 @@ mod plan;
 mod policy;
 mod pty;
 mod store;
+mod trust;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -120,6 +121,23 @@ async fn plan_generate(
     Ok(PlanDraft { id, plan })
 }
 
+fn folder_trusted(root: &std::path::Path) -> Result<bool, String> {
+    let root = policy::simplify(root.canonicalize().map_err(|e| e.to_string())?);
+    trust::config_path()
+        .and_then(|c| trust::is_trusted(&c, &root))
+        .map_err(|e| e.to_string())
+}
+
+/// Whether Claude Code already trusts the workspace folder (read-only check).
+#[tauri::command]
+fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool, String> {
+    let root = store
+        .get_workspace(workspace_id)
+        .map_err(|e| e.to_string())?
+        .root();
+    folder_trusted(&root)
+}
+
 #[tauri::command]
 fn plan_approve(plans: State<'_, PlanStore>, plan_id: u64) -> Result<(), String> {
     plans.approve(plan_id).map_err(|e| e.to_string())
@@ -151,6 +169,9 @@ fn pty_spawn_agent(
         .get_workspace(workspace_id)
         .map_err(|e| e.to_string())?
         .root();
+    if !folder_trusted(&root)? {
+        return Err(trust::NOT_TRUSTED.into());
+    }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let mut spec = policy::authorize(
         Program::Claude,
@@ -222,7 +243,8 @@ pub fn run() {
             pty_kill,
             workspace_list,
             workspace_add,
-            workspace_remove
+            workspace_remove,
+            workspace_trusted
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,13 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
-import { approvePlan, generatePlan, ORCHESTRATOR_ID, type PlanDraft } from "../lib/team";
+import {
+  approvePlan,
+  generatePlan,
+  ORCHESTRATOR_ID,
+  workspaceTrusted,
+  type PlanDraft,
+} from "../lib/team";
 import { TerminalPane } from "./TerminalPane";
 
 type Stage =
@@ -34,14 +40,17 @@ function AgentTerminal({
 export function TeamPanel({
   workspaceId,
   workspaceName,
+  workspacePath,
 }: {
   workspaceId: number;
   workspaceName: string;
+  workspacePath: string;
 }) {
   const { t } = useTranslation();
   const [request, setRequest] = useState("");
   const [stage, setStage] = useState<Stage>({ kind: "request" });
   const [error, setError] = useState<string | null>(null);
+  const [untrusted, setUntrusted] = useState(false);
   const shell = useMemo<Spawner>(
     () => (id, cols, rows, onEvent) => spawnShell(workspaceId, id, cols, rows, onEvent),
     [workspaceId],
@@ -61,6 +70,10 @@ export function TeamPanel({
   const approve = async (draft: PlanDraft) => {
     setError(null);
     try {
+      // Agents would hang on Claude Code's trust prompt; the user trusts the folder outside INA.
+      const trusted = await workspaceTrusted(workspaceId);
+      setUntrusted(!trusted);
+      if (!trusted) return;
       await approvePlan(draft.id);
       setStage({ kind: "running", draft });
     } catch (e) {
@@ -116,10 +129,19 @@ export function TeamPanel({
           </button>
           {stage.kind === "review" && (
             <button className={button} onClick={() => void approve(stage.draft)}>
-              {t("team.approve", { count: stage.draft.plan.agents.length + 1 })}
+              {untrusted
+                ? t("team.recheck")
+                : t("team.approve", { count: stage.draft.plan.agents.length + 1 })}
             </button>
           )}
         </div>
+        {untrusted && stage.kind === "review" && (
+          <div role="alert" className="flex flex-col gap-1 rounded border border-line p-2 text-xs">
+            <p className="text-zinc-100">{t("team.untrusted")}</p>
+            <code className="text-muted">cd &quot;{workspacePath}&quot; ; claude</code>
+            <p className="text-muted">{t("team.untrustedHint")}</p>
+          </div>
+        )}
         {error && (
           <p role="alert" className="break-words text-xs text-red-400">
             {error}

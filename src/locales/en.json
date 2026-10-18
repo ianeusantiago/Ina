@@ -31,6 +31,9 @@
     "mode": {
       "parallel": "Parallel execution",
       "sequential": "Sequential execution"
-    }
+    },
+    "untrusted": "Claude Code does not trust this folder yet, so the agents would stop at the trust prompt.",
+    "untrustedHint": "Open a terminal in the folder, run claude, choose \"Yes, I trust this folder\" and exit. Then click Check again.",
+    "recheck": "Check again"
   }
 }

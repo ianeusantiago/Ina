@@ -55,7 +55,12 @@ export default function App() {
         />
         <div className="min-h-0 min-w-0 flex-1 p-2">
           {selected ? (
-            <TeamPanel key={selected.id} workspaceId={selected.id} workspaceName={selected.name} />
+            <TeamPanel
+              key={selected.id}
+              workspaceId={selected.id}
+              workspaceName={selected.name}
+              workspacePath={selected.path}
+            />
           ) : (
             <p className="p-4 text-sm text-muted">{t("workspaces.selectHint")}</p>
           )}
