@@ -472,6 +472,20 @@ fn decode(row: TeamRow) -> Result<Decoded, PlanError> {
     Ok((row.workspace_id, plan, worktrees))
 }
 
+/// Marks a team as being cleaned up while alive (see [`PlanStore::cleaning`]).
+pub struct CleaningGuard<'a> {
+    plans: &'a PlanStore,
+    id: u64,
+}
+
+impl Drop for CleaningGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut c) = self.plans.cleaning.lock() {
+            c.remove(&self.id);
+        }
+    }
+}
+
 /// Team plans, persisted in SQLite so a team survives restarts (agent prompts are always
 /// rebuilt from here, never taken from the frontend), plus the live sessions of each team.
 #[derive(Default)]
@@ -480,9 +494,30 @@ pub struct PlanStore {
     sessions: Mutex<HashMap<u64, Vec<(String, String)>>>,
     /// Decoded approved teams; a team's row never changes after approval until it is closed.
     approved: Mutex<HashMap<u64, Team>>,
+    /// Teams whose worktrees are being removed: the background tick leaves them alone.
+    cleaning: Mutex<std::collections::HashSet<u64>>,
 }
 
 impl PlanStore {
+    /// Mark `id` as being cleaned up until the returned guard drops.
+    pub fn cleaning(&self, id: u64) -> CleaningGuard<'_> {
+        if let Ok(mut c) = self.cleaning.lock() {
+            c.insert(id);
+        }
+        CleaningGuard { plans: self, id }
+    }
+
+    pub fn is_cleaning(&self, id: u64) -> bool {
+        self.cleaning.lock().is_ok_and(|c| c.contains(&id))
+    }
+
+    /// Drop cached teams of a removed workspace (its rows are deleted in cascade).
+    pub fn forget_workspace(&self, workspace_id: i64) {
+        if let Ok(mut cache) = self.approved.lock() {
+            cache.retain(|_, t| t.workspace_id != workspace_id);
+        }
+    }
+
     pub fn insert(&self, db: &Store, workspace_id: i64, plan: &Plan) -> Result<u64, PlanError> {
         let json = serde_json::to_string(plan).map_err(json_err)?;
         let id = db.insert_team(workspace_id, &json).map_err(db_err)?;
@@ -510,8 +545,13 @@ impl PlanStore {
     }
 
     pub fn approved(&self, db: &Store, id: u64) -> Result<Team, PlanError> {
-        if let Some(team) = self.approved.lock().ok().and_then(|c| c.get(&id).cloned()) {
-            return Ok(team);
+        // Held across the miss so a concurrent `close` cannot be undone by a stale insert.
+        let mut cache = self
+            .approved
+            .lock()
+            .map_err(|e| PlanError::Store(e.to_string()))?;
+        if let Some(team) = cache.get(&id) {
+            return Ok(team.clone());
         }
         let row = db.get_team(to_id(id)?).map_err(db_err)?;
         if row.closed {
@@ -524,9 +564,7 @@ impl PlanStore {
             plan,
             worktrees: worktrees.ok_or(PlanError::NotApproved)?,
         };
-        if let Ok(mut cache) = self.approved.lock() {
-            cache.insert(id, team.clone());
-        }
+        cache.insert(id, team.clone());
         Ok(team)
     }
 
@@ -549,10 +587,13 @@ impl PlanStore {
     }
 
     pub fn close(&self, db: &Store, id: u64) -> Result<(), PlanError> {
-        if let Ok(mut cache) = self.approved.lock() {
-            cache.remove(&id);
-        }
-        db.close_team(to_id(id)?).map_err(db_err)
+        let mut cache = self
+            .approved
+            .lock()
+            .map_err(|e| PlanError::Store(e.to_string()))?;
+        db.close_team(to_id(id)?).map_err(db_err)?;
+        cache.remove(&id);
+        Ok(())
     }
 
     pub fn add_session(&self, team: u64, session: &str, agent: &str) {

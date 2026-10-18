@@ -457,6 +457,7 @@ async fn team_cleanup(
     discard_untracked: bool,
 ) -> Result<Vec<CleanupResult>, String> {
     let (git, team, _) = team_git(&store, &plans, plan_id)?;
+    let _cleaning = plans.cleaning(plan_id);
     let sessions = plans.take_sessions(plan_id);
     for id in &sessions {
         if pty.is_running(id)
@@ -1304,63 +1305,73 @@ fn workspace_add(store: State<'_, Store>, path: String) -> Result<Workspace, Str
 }
 
 #[tauri::command]
-fn workspace_remove(store: State<'_, Store>, id: i64) -> Result<(), String> {
-    store.remove_workspace(id).map_err(|e| e.to_string())
+fn workspace_remove(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    id: i64,
+) -> Result<(), String> {
+    store.remove_workspace(id).map_err(|e| e.to_string())?;
+    plans.forget_workspace(id);
+    Ok(())
 }
 
-/// No PTY survives a restart: finish every task still marked running with the result it left,
-/// or as lost.
-/// Background tick: recover tasks lost by a restart, then keep every open team moving
-/// (results, verifications, outbox) whether or not its panels are open.
+/// Background tick: keep every open team moving (results, verifications, outbox) whether or
+/// not its panels are open.
 fn tick_loop(app: &tauri::AppHandle) {
     let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
-    if let Err(e) = recover_lost_tasks(&store, &plans) {
-        eprintln!("recovering tasks failed: {e}");
-    }
     let mut last_errors = std::collections::HashMap::<u64, String>::new();
     let mut last_tasks = HashMap::<u64, String>::new();
     loop {
         std::thread::sleep(TICK);
-        reap_timeouts(app);
-        let workspaces = match store.list_workspaces() {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("tick: {e}");
-                continue;
-            }
-        };
-        for ws in workspaces {
-            let teams = match plans.open_teams(&store, ws.id) {
-                Ok(t) => t,
+        // A panic in one tick is logged; the loop (timeouts, verifications, outbox) survives.
+        let tick = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            reap_timeouts(app);
+            let workspaces = match store.list_workspaces() {
+                Ok(w) => w,
                 Err(e) => {
-                    eprintln!("tick: workspace {}: {e}", ws.id);
-                    continue;
+                    eprintln!("tick: {e}");
+                    return;
                 }
             };
-            for team in teams {
-                let result = sync_tasks(app, team.id).and_then(|tasks| {
-                    let (_, arrived) = sync_messages(app, team.id)?;
-                    let snapshot = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
-                    let changed = last_tasks.get(&team.id) != Some(&snapshot);
-                    last_tasks.insert(team.id, snapshot);
-                    if changed || arrived > 0 {
-                        // Open panels refresh now instead of waiting for their fallback poll.
-                        app.emit(TEAM_CHANGED, team.id).map_err(|e| e.to_string())?;
+            for ws in workspaces {
+                let teams = match plans.open_teams(&store, ws.id) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("tick: workspace {}: {e}", ws.id);
+                        continue;
                     }
-                    Ok(())
-                });
-                match result {
-                    // Logged once per distinct error, not every tick.
-                    Err(e) if last_errors.get(&team.id) != Some(&e) => {
-                        eprintln!("tick: team {}: {e}", team.id);
-                        last_errors.insert(team.id, e);
+                };
+                for team in teams {
+                    if plans.is_cleaning(team.id) {
+                        continue;
                     }
-                    Err(_) => {}
-                    Ok(_) => {
-                        last_errors.remove(&team.id);
+                    let result = sync_tasks(app, team.id).and_then(|tasks| {
+                        let (_, arrived) = sync_messages(app, team.id)?;
+                        let snapshot = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
+                        let changed = last_tasks.get(&team.id) != Some(&snapshot);
+                        last_tasks.insert(team.id, snapshot);
+                        if changed || arrived > 0 {
+                            // Open panels refresh now instead of waiting for their fallback poll.
+                            app.emit(TEAM_CHANGED, team.id).map_err(|e| e.to_string())?;
+                        }
+                        Ok(())
+                    });
+                    match result {
+                        // Logged once per distinct error, not every tick.
+                        Err(e) if last_errors.get(&team.id) != Some(&e) => {
+                            eprintln!("tick: team {}: {e}", team.id);
+                            last_errors.insert(team.id, e);
+                        }
+                        Err(_) => {}
+                        Ok(_) => {
+                            last_errors.remove(&team.id);
+                        }
                     }
                 }
             }
+        }));
+        if tick.is_err() {
+            eprintln!("tick panicked; continuing");
         }
     }
 }
@@ -1370,6 +1381,8 @@ const TEAM_CHANGED: &str = "team-changed";
 
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// No PTY survives a restart: finish every task still marked running with the result it left,
+/// or as lost; give teams approved before the registry existed their rows.
 fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
     for ws in store.list_workspaces().map_err(|e| e.to_string())? {
         let root = ws.root();
@@ -1402,6 +1415,10 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(Store::open(&dir.join("ina.db"))?);
+            // Before any command or the tick can run: a spawn racing this would be marked lost.
+            if let Err(e) = recover_lost_tasks(&app.state::<Store>(), &app.state::<PlanStore>()) {
+                eprintln!("recovering tasks failed: {e}");
+            }
             let handle = app.handle().clone();
             std::thread::spawn(move || tick_loop(&handle));
             Ok(())

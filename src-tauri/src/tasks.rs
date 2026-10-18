@@ -271,7 +271,6 @@ fn append_event(root: &Path, e: &Event<'_>) -> Result<(), TaskError> {
     Ok(())
 }
 
-/// The registry for one workspace: store rows plus the event log in its root.
 /// One agent's row in the registry, with a typed status.
 #[derive(Debug, Clone)]
 pub struct Task {
@@ -283,6 +282,7 @@ pub struct Task {
     pub updated_at: String,
 }
 
+/// The registry for one workspace: store rows plus the event log in its root.
 pub struct Registry<'a> {
     pub store: &'a Store,
     pub root: &'a Path,
