@@ -34,7 +34,12 @@
     },
     "untrusted": "Claude Code does not trust this folder yet, so the agents would stop at the trust prompt.",
     "untrustedHint": "Open a terminal in the folder, run claude, choose \"Yes, I trust this folder\" and exit. Then click Check again.",
-    "recheck": "Check again"
+    "recheck": "Check again",
+    "openTeams": "Open teams (not cleaned up)",
+    "resume": "Resume",
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agents",
+    "openTerminal": "Open terminal"
   },
   "integration": {
     "title": "Integration",

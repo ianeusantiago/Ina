@@ -80,6 +80,24 @@ fn pty_spawn_shell(
         .map_err(|e| e.to_string())
 }
 
+/// Approved, open teams of a workspace, so they can be resumed after a restart.
+#[tauri::command]
+fn team_list(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    workspace_id: i64,
+) -> Result<Vec<PlanDraft>, String> {
+    Ok(plans
+        .open_teams(&store, workspace_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|t| PlanDraft {
+            id: t.id,
+            plan: t.plan,
+        })
+        .collect())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PlanDraft {
@@ -118,7 +136,9 @@ async fn plan_generate(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
-    let id = plans.insert(workspace_id, plan.clone());
+    let id = plans
+        .insert(&store, workspace_id, &plan)
+        .map_err(|e| e.to_string())?;
     Ok(PlanDraft { id, plan })
 }
 
@@ -158,7 +178,7 @@ fn team_git(
     plans: &PlanStore,
     plan_id: u64,
 ) -> Result<(worktree::Git, Vec<(String, worktree::Worktree)>), String> {
-    let team = plans.approved(plan_id).map_err(|e| e.to_string())?;
+    let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
     let git = git_for(store, team.workspace_id)?;
     let ordered = team
         .plan
@@ -263,16 +283,35 @@ struct CleanupResult {
     error: Option<String>,
 }
 
-/// Remove agent worktrees and merged branches. Git refuses dirty worktrees and unmerged
-/// branches, so no work is lost; sessions still running in a worktree make removal fail.
+/// Stop the team's sessions, then remove agent worktrees and merged branches. Git refuses
+/// dirty worktrees and unmerged branches, so no work is lost. When everything is removed the
+/// team is closed.
 #[tauri::command]
 async fn team_cleanup(
+    pty: State<'_, PtyManager>,
     store: State<'_, Store>,
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<Vec<CleanupResult>, String> {
     let (git, team) = team_git(&store, &plans, plan_id)?;
-    blocking(move || {
+    let sessions = plans.take_sessions(plan_id);
+    for id in &sessions {
+        if pty.is_running(id)
+            && let Err(e) = pty.kill(id)
+        {
+            eprintln!("cleanup: kill {id} failed: {e}");
+        }
+    }
+    // A killed process releases its cwd only once it has exited.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while sessions.iter().any(|id| pty.is_running(id)) && std::time::Instant::now() < deadline {
+        tauri::async_runtime::spawn_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_millis(100))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    let results: Vec<CleanupResult> = blocking(move || {
         Ok(team
             .into_iter()
             .map(|(agent_id, wt)| CleanupResult {
@@ -281,7 +320,11 @@ async fn team_cleanup(
             })
             .collect())
     })
-    .await
+    .await?;
+    if results.iter().all(|r| r.error.is_none()) {
+        plans.close(&store, plan_id).map_err(|e| e.to_string())?;
+    }
+    Ok(results)
 }
 
 /// Approve a plan: create one git worktree + branch per agent (all or nothing), then record it.
@@ -291,7 +334,7 @@ async fn plan_approve(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<(), String> {
-    let (workspace_id, plan) = plans.pending(plan_id).map_err(|e| e.to_string())?;
+    let (workspace_id, plan) = plans.pending(&store, plan_id).map_err(|e| e.to_string())?;
     let git = git_for(&store, workspace_id)?;
     // Run id: unique per approval and across restarts, so branch names never collide.
     let secs = std::time::SystemTime::now()
@@ -314,7 +357,7 @@ async fn plan_approve(
         .map(|a| a.id.clone())
         .zip(team.iter().cloned())
         .collect();
-    plans.approve(plan_id, map).map_err(|e| {
+    plans.approve(&store, plan_id, &map).map_err(|e| {
         git.remove_team(&team);
         e.to_string()
     })
@@ -336,7 +379,7 @@ fn pty_spawn_agent(
     on_event: Channel<PtyMessage>,
 ) -> Result<(), String> {
     valid_id(&id)?;
-    let team = plans.approved(plan_id).map_err(|e| e.to_string())?;
+    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
     let root = store
         .get_workspace(team.workspace_id)
         .map_err(|e| e.to_string())?
@@ -363,7 +406,9 @@ fn pty_spawn_agent(
     spec.cols = cols.max(1);
     spec.rows = rows.max(1);
     pty.spawn(&id, spec, channel_sink(on_event))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    plans.add_session(plan_id, &id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -425,7 +470,8 @@ pub fn run() {
             workspace_trusted,
             team_status,
             team_integrate,
-            team_cleanup
+            team_cleanup,
+            team_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

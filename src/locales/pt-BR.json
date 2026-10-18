@@ -34,7 +34,12 @@
     },
     "untrusted": "O Claude Code ainda não confia nesta pasta, e os agentes ficariam parados na pergunta de confiança.",
     "untrustedHint": "Abra um terminal na pasta, rode claude, escolha \"Yes, I trust this folder\" e saia. Depois clique em Verificar de novo.",
-    "recheck": "Verificar de novo"
+    "recheck": "Verificar de novo",
+    "openTeams": "Equipes abertas (não limpas)",
+    "resume": "Retomar",
+    "agents_one": "{{count}} agente",
+    "agents_other": "{{count}} agentes",
+    "openTerminal": "Abrir terminal"
   },
   "integration": {
     "title": "Integração",

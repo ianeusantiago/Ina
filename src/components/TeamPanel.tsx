@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   approvePlan,
   generatePlan,
+  listTeams,
   ORCHESTRATOR_ID,
   workspaceTrusted,
   type PlanDraft,
@@ -15,7 +16,7 @@ type Stage =
   | { kind: "request" }
   | { kind: "planning" }
   | { kind: "review"; draft: PlanDraft }
-  | { kind: "running"; draft: PlanDraft };
+  | { kind: "running"; draft: PlanDraft; resumed: boolean };
 
 const button =
   "rounded border border-line px-3 py-1 text-xs hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
@@ -25,16 +26,32 @@ function AgentTerminal({
   agentId,
   title,
   subtitle,
+  lazy,
 }: {
   planId: number;
   agentId: string;
   title: string;
   subtitle: string;
+  /** Resumed teams open sessions on demand, so the task is not re-sent unasked. */
+  lazy: boolean;
 }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(!lazy);
   const spawn = useMemo<Spawner>(
     () => (id, cols, rows, onEvent) => spawnAgent(planId, agentId, id, cols, rows, onEvent),
     [planId, agentId],
   );
+  if (!open) {
+    return (
+      <section className="flex h-full min-h-0 flex-col items-start gap-2 rounded border border-line bg-panel p-3 text-xs">
+        <span className="font-medium">{title}</span>
+        <span className="text-muted">{subtitle}</span>
+        <button className={button} onClick={() => setOpen(true)}>
+          {t("team.openTerminal")}
+        </button>
+      </section>
+    );
+  }
   return <TerminalPane title={title} subtitle={subtitle} spawn={spawn} />;
 }
 
@@ -52,6 +69,13 @@ export function TeamPanel({
   const [stage, setStage] = useState<Stage>({ kind: "request" });
   const [error, setError] = useState<string | null>(null);
   const [untrusted, setUntrusted] = useState(false);
+  const [openTeams, setOpenTeams] = useState<PlanDraft[]>([]);
+
+  useEffect(() => {
+    listTeams(workspaceId)
+      .then(setOpenTeams)
+      .catch((e: unknown) => setError(String(e)));
+  }, [workspaceId]);
   const shell = useMemo<Spawner>(
     () => (id, cols, rows, onEvent) => spawnShell(workspaceId, id, cols, rows, onEvent),
     [workspaceId],
@@ -76,7 +100,7 @@ export function TeamPanel({
       setUntrusted(!trusted);
       if (!trusted) return;
       await approvePlan(draft.id);
-      setStage({ kind: "running", draft });
+      setStage({ kind: "running", draft, resumed: false });
     } catch (e) {
       setError(String(e));
     }
@@ -84,6 +108,7 @@ export function TeamPanel({
 
   if (stage.kind === "running") {
     const { id, plan: p } = stage.draft;
+    const lazy = stage.resumed;
     const count = p.agents.length + 1;
     const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
     return (
@@ -98,9 +123,17 @@ export function TeamPanel({
             agentId={ORCHESTRATOR_ID}
             title={t("team.orchestrator")}
             subtitle={p.summary}
+            lazy={lazy}
           />
           {p.agents.map((a) => (
-            <AgentTerminal key={a.id} planId={id} agentId={a.id} title={a.name} subtitle={a.role} />
+            <AgentTerminal
+              key={a.id}
+              planId={id}
+              agentId={a.id}
+              title={a.name}
+              subtitle={a.role}
+              lazy={lazy}
+            />
           ))}
         </div>
       </div>
@@ -113,6 +146,27 @@ export function TeamPanel({
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
           {t("team.title")}
         </h2>
+        {openTeams.length > 0 && (
+          <div className="flex flex-col gap-1 text-xs">
+            <span className="text-muted">{t("team.openTeams")}</span>
+            {openTeams.map((d) => (
+              <div key={d.id} className="flex items-center gap-2 rounded border border-line p-2">
+                <span className="min-w-0 flex-1 truncate" title={d.plan.summary}>
+                  {d.plan.summary}
+                </span>
+                <span className="text-muted">
+                  {t("team.agents", { count: d.plan.agents.length })}
+                </span>
+                <button
+                  className={button}
+                  onClick={() => setStage({ kind: "running", draft: d, resumed: true })}
+                >
+                  {t("team.resume")}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <label className="flex flex-col gap-1 text-xs text-muted">
           {t("team.requestLabel")}
           <textarea

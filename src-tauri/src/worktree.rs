@@ -18,7 +18,7 @@ pub enum WorktreeError {
     Io(#[from] std::io::Error),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Worktree {
     pub path: PathBuf,
     pub branch: String,

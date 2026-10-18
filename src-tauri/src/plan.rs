@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::store::{Store, StoreError, TeamRow};
 use crate::worktree::Worktree;
 
 /// One session is reserved for the orchestrator; the rest stay under `policy::MAX_SESSIONS`.
@@ -31,6 +32,10 @@ pub enum PlanError {
     NotApproved,
     #[error("plan was already approved")]
     AlreadyApproved,
+    #[error("team was closed")]
+    Closed,
+    #[error("team store: {0}")]
+    Store(String),
     #[error("agent not found in plan: {0}")]
     UnknownAgent(String),
 }
@@ -353,74 +358,123 @@ pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
     parse_planner_output(&stdout)
 }
 
-struct Entry {
-    workspace_id: i64,
-    plan: Plan,
-    /// Set on approval: each agent's isolated worktree.
-    worktrees: Option<HashMap<String, Worktree>>,
-}
-
 /// An approved plan, ready to spawn.
 #[derive(Debug, Clone)]
 pub struct Team {
+    pub id: u64,
     pub workspace_id: i64,
     pub plan: Plan,
     pub worktrees: HashMap<String, Worktree>,
 }
 
-/// Plans awaiting or holding approval. The backend keeps them so agent prompts never come
-/// from the frontend.
+fn db_err(e: StoreError) -> PlanError {
+    match e {
+        StoreError::TeamNotFound(_) => PlanError::NotFound,
+        StoreError::TeamAlreadyApproved(_) => PlanError::AlreadyApproved,
+        e => PlanError::Store(e.to_string()),
+    }
+}
+
+fn json_err(e: serde_json::Error) -> PlanError {
+    PlanError::Store(format!("corrupt team record: {e}"))
+}
+
+fn to_id(id: u64) -> Result<i64, PlanError> {
+    i64::try_from(id).map_err(|_| PlanError::NotFound)
+}
+
+/// Workspace id, plan, and worktrees (if approved).
+type Decoded = (i64, Plan, Option<HashMap<String, Worktree>>);
+
+fn decode(row: TeamRow) -> Result<Decoded, PlanError> {
+    let plan = serde_json::from_str(&row.plan).map_err(json_err)?;
+    let worktrees = row
+        .worktrees
+        .map(|w| serde_json::from_str(&w))
+        .transpose()
+        .map_err(json_err)?;
+    Ok((row.workspace_id, plan, worktrees))
+}
+
+/// Team plans, persisted in SQLite so a team survives restarts (agent prompts are always
+/// rebuilt from here, never taken from the frontend), plus the live sessions of each team.
 #[derive(Default)]
 pub struct PlanStore {
-    inner: Mutex<(u64, HashMap<u64, Entry>)>,
+    sessions: Mutex<HashMap<u64, Vec<String>>>,
 }
 
 impl PlanStore {
-    pub fn insert(&self, workspace_id: i64, plan: Plan) -> u64 {
-        let mut g = self.inner.lock().expect("plan store poisoned");
-        g.0 += 1;
-        let id = g.0;
-        g.1.insert(
-            id,
-            Entry {
-                workspace_id,
-                plan,
-                worktrees: None,
-            },
-        );
-        id
+    pub fn insert(&self, db: &Store, workspace_id: i64, plan: &Plan) -> Result<u64, PlanError> {
+        let json = serde_json::to_string(plan).map_err(json_err)?;
+        let id = db.insert_team(workspace_id, &json).map_err(db_err)?;
+        u64::try_from(id).map_err(|_| PlanError::NotFound)
     }
 
     /// A plan still awaiting approval.
-    pub fn pending(&self, id: u64) -> Result<(i64, Plan), PlanError> {
-        let g = self.inner.lock().expect("plan store poisoned");
-        let e = g.1.get(&id).ok_or(PlanError::NotFound)?;
-        if e.worktrees.is_some() {
+    pub fn pending(&self, db: &Store, id: u64) -> Result<(i64, Plan), PlanError> {
+        let (workspace_id, plan, worktrees) = decode(db.get_team(to_id(id)?).map_err(db_err)?)?;
+        if worktrees.is_some() {
             return Err(PlanError::AlreadyApproved);
         }
-        Ok((e.workspace_id, e.plan.clone()))
+        Ok((workspace_id, plan))
     }
 
     /// Record approval with every agent's worktree. Fails if already approved.
-    pub fn approve(&self, id: u64, worktrees: HashMap<String, Worktree>) -> Result<(), PlanError> {
-        let mut g = self.inner.lock().expect("plan store poisoned");
-        let e = g.1.get_mut(&id).ok_or(PlanError::NotFound)?;
-        if e.worktrees.is_some() {
-            return Err(PlanError::AlreadyApproved);
-        }
-        e.worktrees = Some(worktrees);
-        Ok(())
+    pub fn approve(
+        &self,
+        db: &Store,
+        id: u64,
+        worktrees: &HashMap<String, Worktree>,
+    ) -> Result<(), PlanError> {
+        let json = serde_json::to_string(worktrees).map_err(json_err)?;
+        db.approve_team(to_id(id)?, &json).map_err(db_err)
     }
 
-    pub fn approved(&self, id: u64) -> Result<Team, PlanError> {
-        let g = self.inner.lock().expect("plan store poisoned");
-        let e = g.1.get(&id).ok_or(PlanError::NotFound)?;
-        let worktrees = e.worktrees.clone().ok_or(PlanError::NotApproved)?;
+    pub fn approved(&self, db: &Store, id: u64) -> Result<Team, PlanError> {
+        let row = db.get_team(to_id(id)?).map_err(db_err)?;
+        if row.closed {
+            return Err(PlanError::Closed);
+        }
+        let (workspace_id, plan, worktrees) = decode(row)?;
         Ok(Team {
-            workspace_id: e.workspace_id,
-            plan: e.plan.clone(),
-            worktrees,
+            id,
+            workspace_id,
+            plan,
+            worktrees: worktrees.ok_or(PlanError::NotApproved)?,
         })
+    }
+
+    /// Approved, open teams of a workspace (newest first).
+    pub fn open_teams(&self, db: &Store, workspace_id: i64) -> Result<Vec<Team>, PlanError> {
+        db.open_teams(workspace_id)
+            .map_err(db_err)?
+            .into_iter()
+            .map(|row| {
+                let id = u64::try_from(row.id).map_err(|_| PlanError::NotFound)?;
+                let (workspace_id, plan, worktrees) = decode(row)?;
+                Ok(Team {
+                    id,
+                    workspace_id,
+                    plan,
+                    worktrees: worktrees.unwrap_or_default(),
+                })
+            })
+            .collect()
+    }
+
+    pub fn close(&self, db: &Store, id: u64) -> Result<(), PlanError> {
+        db.close_team(to_id(id)?).map_err(db_err)
+    }
+
+    pub fn add_session(&self, team: u64, session: &str) {
+        let mut g = self.sessions.lock().expect("session map poisoned");
+        g.entry(team).or_default().push(session.to_owned());
+    }
+
+    /// Take (and forget) the sessions spawned for a team.
+    pub fn take_sessions(&self, team: u64) -> Vec<String> {
+        let mut g = self.sessions.lock().expect("session map poisoned");
+        g.remove(&team).unwrap_or_default()
     }
 }
 
@@ -499,18 +553,47 @@ mod tests {
 
     #[test]
     fn spawning_requires_approval() {
+        let db = Store::in_memory().unwrap();
+        let dir = std::env::temp_dir();
+        let ws = db.add_workspace(&dir).unwrap();
         let store = PlanStore::default();
-        let id = store.insert(1, plan(vec![agent("api", &[])]));
-        assert!(matches!(store.approved(id), Err(PlanError::NotApproved)));
-        assert_eq!(store.pending(id).unwrap().0, 1);
-        store.approve(id, HashMap::new()).unwrap();
-        assert_eq!(store.approved(id).unwrap().workspace_id, 1);
-        assert!(matches!(store.pending(id), Err(PlanError::AlreadyApproved)));
+        let id = store
+            .insert(&db, ws.id, &plan(vec![agent("api", &[])]))
+            .unwrap();
         assert!(matches!(
-            store.approve(id, HashMap::new()),
+            store.approved(&db, id),
+            Err(PlanError::NotApproved)
+        ));
+        assert_eq!(store.pending(&db, id).unwrap().0, ws.id);
+        let wt = Worktree {
+            path: "C:/w/.ina/worktrees/r-api".into(),
+            branch: "ina/r/api".into(),
+        };
+        let map = HashMap::from([("api".to_string(), wt.clone())]);
+        store.approve(&db, id, &map).unwrap();
+        let team = store.approved(&db, id).unwrap();
+        assert_eq!((team.workspace_id, &team.worktrees["api"]), (ws.id, &wt));
+        assert!(matches!(
+            store.pending(&db, id),
             Err(PlanError::AlreadyApproved)
         ));
-        assert!(matches!(store.approved(id + 1), Err(PlanError::NotFound)));
+        assert!(matches!(
+            store.approve(&db, id, &map),
+            Err(PlanError::AlreadyApproved)
+        ));
+        assert!(matches!(
+            store.approved(&db, id + 1),
+            Err(PlanError::NotFound)
+        ));
+        assert_eq!(store.open_teams(&db, ws.id).unwrap().len(), 1);
+
+        store.add_session(id, "s-1");
+        assert_eq!(store.take_sessions(id), ["s-1"]);
+        assert!(store.take_sessions(id).is_empty());
+
+        store.close(&db, id).unwrap();
+        assert!(matches!(store.approved(&db, id), Err(PlanError::Closed)));
+        assert!(store.open_teams(&db, ws.id).unwrap().is_empty());
     }
 
     #[test]

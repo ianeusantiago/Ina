@@ -16,6 +16,10 @@ pub enum StoreError {
     DuplicateWorkspace(String),
     #[error("workspace not found: {0}")]
     WorkspaceNotFound(i64),
+    #[error("team not found: {0}")]
+    TeamNotFound(i64),
+    #[error("team was already approved: {0}")]
+    TeamAlreadyApproved(i64),
     #[error("store lock poisoned")]
     Poisoned,
 }
@@ -27,12 +31,23 @@ pub struct Workspace {
     pub path: String,
 }
 
-const MIGRATIONS: &[&str] = &["CREATE TABLE workspaces (
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE workspaces (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         path TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );"];
+    );",
+    // Team plans. `worktrees` is NULL until approved; `closed` once cleaned up.
+    "CREATE TABLE teams (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        plan TEXT NOT NULL,
+        worktrees TEXT,
+        closed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
+];
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -150,6 +165,85 @@ impl Store {
     }
 }
 
+/// A stored team: plan and worktrees as JSON (shapes owned by `plan`/`worktree`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamRow {
+    pub id: i64,
+    pub workspace_id: i64,
+    pub plan: String,
+    pub worktrees: Option<String>,
+    pub closed: bool,
+}
+
+const TEAM_COLS: &str = "id, workspace_id, plan, worktrees, closed";
+
+fn team_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TeamRow> {
+    Ok(TeamRow {
+        id: r.get(0)?,
+        workspace_id: r.get(1)?,
+        plan: r.get(2)?,
+        worktrees: r.get(3)?,
+        closed: r.get(4)?,
+    })
+}
+
+impl Store {
+    pub fn insert_team(&self, workspace_id: i64, plan: &str) -> Result<i64, StoreError> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO teams (workspace_id, plan) VALUES (?1, ?2)",
+            params![workspace_id, plan],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_team(&self, id: i64) -> Result<TeamRow, StoreError> {
+        self.conn()?
+            .query_row(
+                &format!("SELECT {TEAM_COLS} FROM teams WHERE id = ?1"),
+                [id],
+                team_row,
+            )
+            .optional()?
+            .ok_or(StoreError::TeamNotFound(id))
+    }
+
+    /// Atomically record approval; fails if the team was approved already.
+    pub fn approve_team(&self, id: i64, worktrees: &str) -> Result<(), StoreError> {
+        let n = self.conn()?.execute(
+            "UPDATE teams SET worktrees = ?2 WHERE id = ?1 AND worktrees IS NULL",
+            params![id, worktrees],
+        )?;
+        match n {
+            0 => {
+                self.get_team(id)?;
+                Err(StoreError::TeamAlreadyApproved(id))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub fn close_team(&self, id: i64) -> Result<(), StoreError> {
+        match self
+            .conn()?
+            .execute("UPDATE teams SET closed = 1 WHERE id = ?1", [id])?
+        {
+            0 => Err(StoreError::TeamNotFound(id)),
+            _ => Ok(()),
+        }
+    }
+
+    /// Approved, not yet closed teams of a workspace, newest first.
+    pub fn open_teams(&self, workspace_id: i64) -> Result<Vec<TeamRow>, StoreError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {TEAM_COLS} FROM teams WHERE workspace_id = ?1 AND worktrees IS NOT NULL              AND closed = 0 ORDER BY id DESC"
+        ))?;
+        let rows = stmt.query_map([workspace_id], team_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}
+
 impl Workspace {
     pub fn root(&self) -> PathBuf {
         PathBuf::from(&self.path)
@@ -216,5 +310,41 @@ mod tests {
         Store::open(&db).unwrap().add_workspace(&ws).unwrap();
         let s = Store::open(&db).unwrap();
         assert_eq!(s.list_workspaces().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn team_lifecycle_persists() {
+        let dir = tempdir("teams");
+        let db = dir.join("ina.db");
+        let ws = {
+            let s = Store::open(&db).unwrap();
+            let ws = s.add_workspace(&dir).unwrap();
+            let id = s.insert_team(ws.id, "{plan}").unwrap();
+            assert!(
+                s.open_teams(ws.id).unwrap().is_empty(),
+                "unapproved is not listed"
+            );
+            s.approve_team(id, "{wt}").unwrap();
+            assert!(matches!(
+                s.approve_team(id, "{x}"),
+                Err(StoreError::TeamAlreadyApproved(_))
+            ));
+            assert!(matches!(
+                s.approve_team(id + 9, "{x}"),
+                Err(StoreError::TeamNotFound(_))
+            ));
+            ws
+        };
+        let s = Store::open(&db).unwrap(); // reopen: survives restart
+        let open = s.open_teams(ws.id).unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].worktrees.as_deref(), Some("{wt}"));
+        s.close_team(open[0].id).unwrap();
+        assert!(s.open_teams(ws.id).unwrap().is_empty());
+        s.remove_workspace(ws.id).unwrap();
+        assert!(matches!(
+            s.get_team(open[0].id),
+            Err(StoreError::TeamNotFound(_))
+        ));
     }
 }
