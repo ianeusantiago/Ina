@@ -43,7 +43,7 @@ fn channel_sink(on_event: Channel<PtyMessage>) -> pty::EventSink {
     Arc::new(move |_id: &str, ev: PtyEvent| {
         let msg = match ev {
             PtyEvent::Output(data) => PtyMessage::Output { data },
-            PtyEvent::Exited(code) => PtyMessage::Exited { code },
+            PtyEvent::Exited { code, .. } => PtyMessage::Exited { code },
         };
         if let Err(e) = on_event.send(msg) {
             eprintln!("pty channel send failed: {e}");
@@ -63,10 +63,7 @@ fn pty_spawn_shell(
     on_event: Channel<PtyMessage>,
 ) -> Result<(), String> {
     valid_id(&id)?;
-    let root = store
-        .get_workspace(workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
+    let root = workspace_root(&store, workspace_id)?;
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let mut spec = policy::authorize(
         Program::Shell,
@@ -120,10 +117,11 @@ async fn plan_generate(
     if request.is_empty() || request.len() > plan::MAX_REQUEST_LEN {
         return Err("request is empty or too long".into());
     }
-    let root = store
-        .get_workspace(workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
+    let root = workspace_root(&store, workspace_id)?;
+    // `-p` skips Claude Code's trust dialog but still loads project settings and hooks.
+    if !folder_trusted(&root)? {
+        return Err(trust::NOT_TRUSTED.into());
+    }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     // Session count 0: the planner is a short-lived child, not a PTY session.
     let spec = policy::authorize(
@@ -135,14 +133,27 @@ async fn plan_generate(
         &path_var,
     )
     .map_err(|e| e.to_string())?;
-    let plan = tauri::async_runtime::spawn_blocking(move || plan::run_planner(&spec))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let plan = blocking(move || plan::run_planner(&spec).map_err(|e| e.to_string())).await?;
     let id = plans
         .insert(&store, workspace_id, &plan)
         .map_err(|e| e.to_string())?;
     Ok(PlanDraft { id, plan })
+}
+
+fn workspace_root(store: &Store, id: i64) -> Result<PathBuf, String> {
+    Ok(store.get_workspace(id).map_err(|e| e.to_string())?.root())
+}
+
+fn registry<'a>(
+    store: &'a Store,
+    root: &'a std::path::Path,
+    plan_id: u64,
+) -> Result<Registry<'a>, String> {
+    Ok(Registry {
+        store,
+        root,
+        team: i64::try_from(plan_id).map_err(|e| e.to_string())?,
+    })
 }
 
 fn folder_trusted(root: &std::path::Path) -> Result<bool, String> {
@@ -155,19 +166,13 @@ fn folder_trusted(root: &std::path::Path) -> Result<bool, String> {
 /// Whether Claude Code already trusts the workspace folder (read-only check).
 #[tauri::command]
 fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool, String> {
-    let root = store
-        .get_workspace(workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
+    let root = workspace_root(&store, workspace_id)?;
     folder_trusted(&root)
 }
 
 /// Git runner for a workspace root (program resolved by the policy, Claude env stripped).
 fn git_for(store: &Store, workspace_id: i64) -> Result<worktree::Git, String> {
-    let root = store
-        .get_workspace(workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
+    let root = workspace_root(store, workspace_id)?;
     let root = policy::simplify(root.canonicalize().map_err(|e| e.to_string())?);
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
@@ -237,6 +242,9 @@ enum IntegrateStep {
         agent_id: String,
         files: Vec<String>,
     },
+    /// Not a conflict (e.g. a hook refused): integration stopped; earlier merges stay.
+    #[serde(rename_all = "camelCase")]
+    Failed { agent_id: String, error: String },
 }
 
 /// Merge every agent branch into the workspace HEAD in dependency order. Refuses if the root
@@ -266,10 +274,19 @@ async fn team_integrate(
                 steps.push(IntegrateStep::Skipped { agent_id });
                 continue;
             }
-            match git.merge(&wt.branch).map_err(|e| e.to_string())? {
-                worktree::MergeOutcome::Merged => steps.push(IntegrateStep::Merged { agent_id }),
-                worktree::MergeOutcome::Conflict { files } => {
+            match git.merge(&wt.branch) {
+                Ok(worktree::MergeOutcome::Merged) => {
+                    steps.push(IntegrateStep::Merged { agent_id })
+                }
+                Ok(worktree::MergeOutcome::Conflict { files }) => {
                     steps.push(IntegrateStep::Conflict { agent_id, files });
+                    break;
+                }
+                Err(e) => {
+                    steps.push(IntegrateStep::Failed {
+                        agent_id,
+                        error: e.to_string(),
+                    });
                     break;
                 }
             }
@@ -298,11 +315,6 @@ async fn team_cleanup(
     discard_untracked: bool,
 ) -> Result<Vec<CleanupResult>, String> {
     let (git, team) = team_git(&store, &plans, plan_id)?;
-    for (agent, _) in &team {
-        for s in plans.agent_sessions(plan_id, agent) {
-            cancel_session(&pty, &store, &plans, &s, "team cleaned up");
-        }
-    }
     let sessions = plans.take_sessions(plan_id);
     for id in &sessions {
         if pty.is_running(id)
@@ -314,11 +326,11 @@ async fn team_cleanup(
     // A killed process releases its cwd only once it has exited.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while sessions.iter().any(|id| pty.is_running(id)) && std::time::Instant::now() < deadline {
-        tauri::async_runtime::spawn_blocking(|| {
-            std::thread::sleep(std::time::Duration::from_millis(100))
+        blocking(|| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            Ok(())
         })
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
     let results: Vec<CleanupResult> = blocking(move || {
         Ok(team
@@ -355,14 +367,12 @@ async fn plan_approve(
         .as_secs();
     let run = format!("{secs:x}");
     let ids: Vec<String> = plan.agents.iter().map(|a| a.id.clone()).collect();
-    let (git, team) = tauri::async_runtime::spawn_blocking(move || {
+    let (git, team) = blocking(move || {
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let team = git.create_team(&run, &refs);
-        (git, team)
+        let team = git.create_team(&run, &refs).map_err(|e| e.to_string())?;
+        Ok((git, team))
     })
-    .await
-    .map_err(|e| e.to_string())?;
-    let team = team.map_err(|e| e.to_string())?;
+    .await?;
     let team_id = to_team(plan_id)?;
     for (agent, wt) in plan.agents.iter().zip(&team) {
         if let Err(e) = tasks::write_task(&wt.path, team_id, &plan, agent, &wt.branch) {
@@ -380,18 +390,11 @@ async fn plan_approve(
         git.remove_team(&team);
         e.to_string()
     })?;
-    let root = store
-        .get_workspace(workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
+    let root = workspace_root(&store, workspace_id)?;
     let agent_ids: Vec<&str> = plan.agents.iter().map(|a| a.id.as_str()).collect();
-    Registry {
-        store: &store,
-        root: &root,
-        team: team_id,
-    }
-    .register(&agent_ids)
-    .map_err(|e| e.to_string())
+    registry(&store, &root, plan_id)?
+        .register(&agent_ids)
+        .map_err(|e| e.to_string())
 }
 
 fn to_team(plan_id: u64) -> Result<i64, String> {
@@ -430,16 +433,15 @@ fn pty_spawn_agent(
 ) -> Result<(), String> {
     valid_id(&id)?;
     let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-    let root = store
-        .get_workspace(team.workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
+    let root = workspace_root(&store, team.workspace_id)?;
     if !folder_trusted(&root)? {
         return Err(trust::NOT_TRUSTED.into());
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let reg = registry(&store, &root, plan_id)?;
+    let is_agent = agent_id != plan::ORCHESTRATOR_ID;
     // Orchestrator works in the workspace root; each agent in its own worktree.
-    let (args, cwd) = if agent_id == plan::ORCHESTRATOR_ID {
+    let (args, cwd) = if !is_agent {
         let prompt = plan::orchestrator_prompt(&team.plan, &team.worktrees);
         (plan::orchestrator_args(prompt), root.clone())
     } else {
@@ -448,11 +450,15 @@ fn pty_spawn_agent(
             .worktrees
             .get(&agent_id)
             .ok_or("agent has no worktree")?;
-        let reg = Registry {
-            store: &store,
-            root: &root,
-            team: to_team(plan_id)?,
-        };
+        let waiting: Vec<&str> = team
+            .plan
+            .prerequisites(&agent_id)
+            .into_iter()
+            .filter(|p| !matches!(reg.status(p), Ok(Some(TaskStatus::Done))))
+            .collect();
+        if !waiting.is_empty() {
+            return Err(format!("waiting for: {}", waiting.join(", ")));
+        }
         // A finished task is being run again: refresh the assignment, set the old result aside.
         if !matches!(
             reg.status(&agent_id).map_err(|e| e.to_string())?,
@@ -469,29 +475,23 @@ fn pty_spawn_agent(
     spec.cols = cols.max(1);
     spec.rows = rows.max(1);
     let sink = channel_sink(on_event);
-    let is_agent = agent_id != plan::ORCHESTRATOR_ID;
     let sink: pty::EventSink = if is_agent {
         let agent = agent_id.clone();
         let wt = cwd.clone();
         let root = root.clone();
         Arc::new(move |sid: &str, ev: PtyEvent| {
-            if let PtyEvent::Exited(code) = &ev {
-                agent_exited(&app, plan_id, &agent, sid, &root, &wt, *code);
+            if let PtyEvent::Exited { code, killed } = &ev {
+                agent_exited(&app, plan_id, &agent, sid, &root, &wt, *code, *killed);
             }
             sink(sid, ev);
         })
     } else {
         sink
     };
-    pty.spawn(&id, spec, sink).map_err(|e| e.to_string())?;
+    // Registered and Running before the process starts, so an immediate exit is recorded.
     plans.add_session(plan_id, &id, &agent_id);
     if is_agent {
-        Registry {
-            store: &store,
-            root: &root,
-            team: to_team(plan_id)?,
-        }
-        .transition(
+        reg.transition(
             &agent_id,
             TaskStatus::Running,
             None,
@@ -499,11 +499,21 @@ fn pty_spawn_agent(
         )
         .map_err(|e| e.to_string())?;
     }
+    if let Err(e) = pty.spawn(&id, spec, sink) {
+        if is_agent && !other_live_session(&pty, &plans, plan_id, &agent_id, &id) {
+            let detail = format!("spawn failed: {e}");
+            if let Err(e2) = reg.transition(&agent_id, TaskStatus::Failed, None, Some(&detail)) {
+                eprintln!("task {agent_id}: recording spawn failure failed: {e2}");
+            }
+        }
+        return Err(e.to_string());
+    }
     Ok(())
 }
 
-/// An agent's process ended: record its result (or the lack of one), unless the user stopped
-/// it or another terminal of the same agent is still running.
+/// An agent's process ended: cancelled if INA killed it, otherwise its result (or the lack of
+/// one). Ignored while another terminal of the same agent is still running.
+#[allow(clippy::too_many_arguments)]
 fn agent_exited(
     app: &tauri::AppHandle,
     plan_id: u64,
@@ -512,24 +522,28 @@ fn agent_exited(
     root: &std::path::Path,
     worktree: &std::path::Path,
     code: Option<u32>,
+    killed: bool,
 ) {
     let pty = app.state::<PtyManager>();
     let plans = app.state::<PlanStore>();
     if other_live_session(&pty, &plans, plan_id, agent, session) {
         return;
     }
-    let Ok(team) = to_team(plan_id) else { return };
     let store = app.state::<Store>();
-    let why = match code {
-        Some(c) => format!("exited with code {c}"),
-        None => "exited".into(),
-    };
-    let reg = Registry {
-        store: &store,
-        root,
-        team,
-    };
-    if let Err(e) = reg.finish(agent, worktree, &why) {
+    let result = registry(&store, root, plan_id).and_then(|reg| {
+        let done = if killed {
+            reg.transition(agent, TaskStatus::Cancelled, None, Some("stopped"))
+                .map(|_| ())
+        } else {
+            let why = match code {
+                Some(c) => format!("exited with code {c}"),
+                None => "exited".into(),
+            };
+            reg.finish(agent, worktree, &why)
+        };
+        done.map_err(|e| e.to_string())
+    });
+    if let Err(e) = result {
         eprintln!("task {agent}: recording exit failed: {e}");
     }
 }
@@ -550,88 +564,47 @@ struct TaskView {
 /// Re-read agents' `result.json` and return the team's task registry. A running task whose
 /// session is gone (e.g. INA restarted) is finished with whatever result it left.
 #[tauri::command]
-fn team_tasks(
-    pty: State<'_, PtyManager>,
-    store: State<'_, Store>,
-    plans: State<'_, PlanStore>,
-    plan_id: u64,
-) -> Result<Vec<TaskView>, String> {
-    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-    let root = store
-        .get_workspace(team.workspace_id)
-        .map_err(|e| e.to_string())?
-        .root();
-    let reg = Registry {
-        store: &store,
-        root: &root,
-        team: to_team(plan_id)?,
-    };
-    let mut errors = std::collections::HashMap::new();
-    for (agent, wt) in &team.worktrees {
-        if reg.status(agent).map_err(|e| e.to_string())? != Some(TaskStatus::Running) {
-            continue;
-        }
-        if other_live_session(&pty, &plans, plan_id, agent, "") {
-            if let Err(e) = reg.apply_result(agent, &wt.path) {
-                errors.insert(agent.clone(), e.to_string());
+async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
+    blocking(move || {
+        let (pty, store, plans) = (
+            app.state::<PtyManager>(),
+            app.state::<Store>(),
+            app.state::<PlanStore>(),
+        );
+        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+        let root = workspace_root(&store, team.workspace_id)?;
+        let reg = registry(&store, &root, plan_id)?;
+        let mut errors = std::collections::HashMap::new();
+        for (agent, wt) in &team.worktrees {
+            if reg.status(agent).map_err(|e| e.to_string())? != Some(TaskStatus::Running) {
+                continue;
             }
-        } else {
-            reg.finish(agent, &wt.path, "session lost")
-                .map_err(|e| e.to_string())?;
+            if other_live_session(&pty, &plans, plan_id, agent, "") {
+                if let Err(e) = reg.apply_result(agent, &wt.path) {
+                    errors.insert(agent.clone(), e.to_string());
+                }
+            } else {
+                reg.finish(agent, &wt.path, "session lost")
+                    .map_err(|e| e.to_string())?;
+            }
         }
-    }
-    store
-        .tasks(reg.team)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|t| {
-            let detail = store
-                .task_history(reg.team, &t.agent_id)
-                .map_err(|e| e.to_string())?
-                .pop()
-                .and_then(|e| e.1);
-            Ok(TaskView {
-                status: TaskStatus::parse(&t.status).map_err(|e| e.to_string())?,
-                result_error: errors.remove(&t.agent_id),
-                agent_id: t.agent_id,
-                summary: t.summary,
-                detail,
-                updated_at: t.updated_at,
-            })
-        })
-        .collect()
-}
-
-/// Mark an agent the user (or cleanup) stops as cancelled before its process exits, so the
-/// exit is not recorded as a failure.
-fn cancel_session(pty: &PtyManager, store: &Store, plans: &PlanStore, session: &str, why: &str) {
-    let Some((plan_id, agent)) = plans.session_agent(session) else {
-        return;
-    };
-    if agent == plan::ORCHESTRATOR_ID
-        || !pty.is_running(session)
-        || other_live_session(pty, plans, plan_id, &agent, session)
-    {
-        return;
-    }
-    let result = (|| -> Result<(), String> {
-        let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
-        let root = store
-            .get_workspace(team.workspace_id)
+        store
+            .tasks(reg.team)
             .map_err(|e| e.to_string())?
-            .root();
-        Registry {
-            store,
-            root: &root,
-            team: to_team(plan_id)?,
-        }
-        .transition(&agent, TaskStatus::Cancelled, None, Some(why))
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-    })();
-    if let Err(e) = result {
-        eprintln!("task {agent}: recording cancel failed: {e}");
-    }
+            .into_iter()
+            .map(|t| {
+                Ok(TaskView {
+                    status: TaskStatus::parse(&t.status).map_err(|e| e.to_string())?,
+                    result_error: errors.remove(&t.agent_id),
+                    agent_id: t.agent_id,
+                    summary: t.summary,
+                    detail: t.detail,
+                    updated_at: t.updated_at,
+                })
+            })
+            .collect()
+    })
+    .await
 }
 
 #[tauri::command]
@@ -646,13 +619,7 @@ fn pty_resize(pty: State<'_, PtyManager>, id: String, cols: u16, rows: u16) -> R
 }
 
 #[tauri::command]
-fn pty_kill(
-    pty: State<'_, PtyManager>,
-    store: State<'_, Store>,
-    plans: State<'_, PlanStore>,
-    id: String,
-) -> Result<(), String> {
-    cancel_session(&pty, &store, &plans, &id, "stopped by user");
+fn pty_kill(pty: State<'_, PtyManager>, id: String) -> Result<(), String> {
     pty.kill(&id).map_err(|e| e.to_string())
 }
 

@@ -113,11 +113,16 @@ export function IntegrationBar({ planId }: { planId: number }) {
       {result?.kind === "integrate" && (
         <ul>
           {result.steps.map((s) => (
-            <li key={s.agentId} className={s.kind === "conflict" ? "text-red-400" : undefined}>
+            <li
+              key={s.agentId}
+              className={s.kind === "conflict" || s.kind === "failed" ? "text-red-400" : undefined}
+            >
               <span className="text-zinc-100">{s.agentId}</span>{" "}
               {s.kind === "conflict"
                 ? t("integration.conflict", { files: s.files.join(", ") })
-                : t(`integration.${s.kind}`)}
+                : s.kind === "failed"
+                  ? t("integration.failed", { error: s.error })
+                  : t(`integration.${s.kind}`)}
             </li>
           ))}
         </ul>

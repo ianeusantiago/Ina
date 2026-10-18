@@ -46,7 +46,8 @@
     "resume": "Resume",
     "agents_one": "{{count}} agent",
     "agents_other": "{{count}} agents",
-    "openTerminal": "Open terminal"
+    "openTerminal": "Open terminal",
+    "waitingFor": "Waits for: {{agents}}"
   },
   "integration": {
     "title": "Integration",
@@ -68,7 +69,8 @@
     "conflict": "conflict in {{files}}; merge aborted, nothing changed",
     "removed": "removed",
     "untracked": "untracked (not merged): {{files}}",
-    "forceCleanup": "Force removal"
+    "forceCleanup": "Force removal",
+    "failed": "failed, integration stopped (earlier merges kept): {{error}}"
   },
   "tasks": {
     "title": "Tasks",

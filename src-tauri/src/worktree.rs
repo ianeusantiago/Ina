@@ -95,7 +95,11 @@ impl Git {
         let info = common.join("info");
         fs::create_dir_all(&info)?;
         let file = info.join("exclude");
-        let current = fs::read_to_string(&file).unwrap_or_default();
+        let current = match fs::read_to_string(&file) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e.into()),
+        };
         if !current.lines().any(|l| l.trim() == "/.ina/") {
             let sep = if current.is_empty() || current.ends_with('\n') {
                 ""

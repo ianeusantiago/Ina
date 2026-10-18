@@ -3,13 +3,13 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::policy::{self, Program};
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(20);
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeSetup {
     pub installed: bool,
@@ -46,14 +46,11 @@ fn version(program: &Path) -> Result<String, String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("run claude --version: {e}"))?;
-    let start = Instant::now();
-    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
-        if start.elapsed() > VERSION_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("claude --version timed out".into());
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    if crate::pty::wait_timeout(&mut child, VERSION_TIMEOUT)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Err("claude --version timed out".into());
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
@@ -64,13 +61,7 @@ fn version(program: &Path) -> Result<String, String> {
 
 pub fn check() -> ClaudeSetup {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let mut s = ClaudeSetup {
-        installed: false,
-        version: None,
-        onboarded: false,
-        logged_in: false,
-        error: None,
-    };
+    let mut s = ClaudeSetup::default();
     let program = match policy::resolve_program(Program::Claude, &path_var) {
         Ok(p) => p,
         Err(_) => return s,

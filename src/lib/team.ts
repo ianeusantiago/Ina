@@ -45,7 +45,8 @@ export interface AgentBranch {
 export type IntegrateStep =
   | { kind: "merged"; agentId: string }
   | { kind: "skipped"; agentId: string }
-  | { kind: "conflict"; agentId: string; files: string[] };
+  | { kind: "conflict"; agentId: string; files: string[] }
+  | { kind: "failed"; agentId: string; error: string };
 
 export interface CleanupResult {
   agentId: string;
@@ -57,6 +58,23 @@ export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
   invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
+/** Agents that must be done before `id` may start (mirrors `Plan::prerequisites`). */
+export function prerequisites(plan: Plan, id: string): string[] {
+  if (plan.mode === "parallel") {
+    return plan.agents.find((a) => a.id === id)?.dependsOn ?? [];
+  }
+  const done = new Set<string>();
+  const order: string[] = [];
+  while (order.length < plan.agents.length) {
+    const next = plan.agents.find((a) => !done.has(a.id) && a.dependsOn.every((d) => done.has(d)));
+    if (!next) break;
+    done.add(next.id);
+    order.push(next.id);
+  }
+  const i = order.indexOf(id);
+  return i < 0 ? [] : order.slice(0, i);
+}
+
 export interface ClaudeSetup {
   installed: boolean;
   version: string | null;

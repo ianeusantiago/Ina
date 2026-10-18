@@ -1,24 +1,26 @@
 # INA — Estado
 
-**Fase atual:** 1 (MVP), passo 7 concluído (plano, aprovação, worktrees, integração, persistência).
+**Fase atual:** 1 (MVP) concluída (passos 1–10). Próximo: planejar a Fase 2.
 
 ## Feito (verificado)
-1-6. Toolchain, scaffold, PTY, policy, SQLite/workspaces (ver git log).
-7. Plano via `claude -p --json-schema` → aprovação → N+1 sessões; env `CLAUDE*` removido dos filhos; trust de pasta só leitura (`trust.rs`); git worktree por agente (`worktree.rs`, branch `ina/<run>/<agente>`); integração `merge --no-ff` em ordem topológica, aborta em conflito; cleanup mata sessões e remove worktrees; equipes persistidas (migração 2 `teams`) e retomáveis. E2E no app via CDP ok.
+1-6. Toolchain, scaffold, PTY, policy, SQLite/workspaces.
+7. Plano → aprovação → N+1 sessões; trust só leitura; worktree por agente; integração controlada; equipes persistidas; limpeza (inclui forçada com 2ª confirmação).
+8. Protocolo `.ina/` (task.json, result.json, events.jsonl) + registro de tarefas (SQLite) + painel. E2E real ok.
+9. Checagem de primeira execução do Claude Code, seletor de idioma, maximizar terminal.
+10. code-review (10 achados; corrigidos: trust no planner, env só de sessão, exclude sem sobrescrever, integração parcial reportada, write do PTY sem lock global, CSP, dependências/sequencial impostos, corrida no spawn, dependência duplicada); simplify (helpers, consultas, kill sinalizado pelo PTY, kill-antes-do-spawn recusado no backend, team_tasks fora da thread principal); docs (README EN/pt-BR, LICENSE MIT, SECURITY, CONTRIBUTING, CHANGELOG, templates).
 
-Testes: Rust 28/28 (+4 ignorados reais), clippy, tsc/eslint/prettier, Vitest 2/2.
+Testes: Rust 37 (+5 ignorados reais), clippy, tsc/eslint/prettier, Vitest 4.
 
-## Em aberto
-- (a) "Forçar remoção" (2ª confirmação) p/ worktree integrado com arquivos não rastreados.
-- Possível sessão claude duplicada ao abrir 1 terminal (StrictMode? kill x spawn).
-
-## Próximos passos
-8. Protocolo `.ina/` (task.json, result.json, events.jsonl) + task_registry + painel de tarefas.
-9. i18n/layout final, checagem de primeira execução do Claude Code.
-10. code-review, security-review, simplify; docs da Fase 1.
+## Pendências conhecidas
+- Orquestrador: deny list é guarda, não sandbox (documentado em SECURITY.md).
+- Agente com dependência precisa ser aberto manualmente quando os pré-requisitos concluem.
+- Ao rodar de novo uma tarefa, o resumo antigo aparece até o novo resultado.
+- `team_tasks` ainda corrige tarefas "running" sem sessão (melhor: varredura no startup).
+- Cópia TS de `prerequisites` espelha a Rust (poderia vir do backend).
+- Redimensionar painéis por arrasto não implementado (só maximizar).
 
 ## Bloqueios
-- RAM 7,3 GB (~92% em uso): Claude Code mata `tauri dev` em background. Fechar apps pesados ao testar.
+- RAM 7,3 GB: Claude Code mata `tauri dev` em background; fechar apps pesados ao testar.
 
 ## Decisões
 - `portable-pty` fixado em `=0.9.0`: `kill` no Windows tem resultado invertido (contornado em `PtyManager::kill`).

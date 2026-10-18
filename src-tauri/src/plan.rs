@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -121,6 +121,25 @@ impl Plan {
         Ok(())
     }
 
+    /// Agents that must be done before `id` may start: its dependencies, and in sequential
+    /// mode every agent before it in dependency order. Assumes `validate` passed.
+    pub fn prerequisites(&self, id: &str) -> Vec<&str> {
+        match self.mode {
+            Mode::Parallel => self
+                .agents
+                .iter()
+                .find(|a| a.id == id)
+                .map(|a| a.depends_on.iter().map(String::as_str).collect())
+                .unwrap_or_default(),
+            Mode::Sequential => self
+                .topo_order()
+                .into_iter()
+                .map(|a| a.id.as_str())
+                .take_while(|a| *a != id)
+                .collect(),
+        }
+    }
+
     /// Agents in dependency order (plan order among those ready). Assumes `validate` passed.
     pub fn topo_order(&self) -> Vec<&AgentSpec> {
         let mut done: HashSet<&str> = HashSet::new();
@@ -142,7 +161,10 @@ impl Plan {
         let mut indeg: HashMap<&str, usize> = self
             .agents
             .iter()
-            .map(|a| (a.id.as_str(), a.depends_on.len()))
+            .map(|a| {
+                let unique: HashSet<&str> = a.depends_on.iter().map(String::as_str).collect();
+                (a.id.as_str(), unique.len())
+            })
             .collect();
         let mut ready: Vec<&str> = indeg
             .iter()
@@ -327,18 +349,9 @@ pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
     };
     let out = drain(Box::new(child.stdout.take().expect("piped")));
     let err = drain(Box::new(child.stderr.take().expect("piped")));
-    let start = Instant::now();
-    let status = loop {
-        if let Some(s) = child.try_wait().map_err(|e| fail(e.to_string()))? {
-            break s;
-        }
-        if start.elapsed() > PLANNER_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(fail("timed out".into()));
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    };
+    let status = crate::pty::wait_timeout(&mut child, PLANNER_TIMEOUT)
+        .map_err(|e| fail(e.to_string()))?
+        .ok_or_else(|| fail("timed out".into()))?;
     let stdout = out
         .join()
         .map_err(|_| fail("stdout reader panicked".into()))?;
@@ -484,16 +497,6 @@ impl PlanStore {
             .collect()
     }
 
-    /// Team and agent a session was spawned for.
-    pub fn session_agent(&self, session: &str) -> Option<(u64, String)> {
-        let g = self.sessions.lock().expect("session map poisoned");
-        g.iter().find_map(|(team, list)| {
-            list.iter()
-                .find(|(s, _)| s == session)
-                .map(|(_, a)| (*team, a.clone()))
-        })
-    }
-
     /// Sessions spawned for one agent of a team.
     pub fn agent_sessions(&self, team: u64, agent: &str) -> Vec<String> {
         let g = self.sessions.lock().expect("session map poisoned");
@@ -541,6 +544,28 @@ mod tests {
         ]);
         let ids: Vec<_> = p.topo_order().iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, ["docs", "api", "ui"]);
+    }
+
+    #[test]
+    fn duplicate_dependency_is_not_a_cycle() {
+        plan(vec![agent("api", &[]), agent("ui", &["api", "api"])])
+            .validate()
+            .unwrap();
+    }
+
+    #[test]
+    fn prerequisites_follow_mode() {
+        let mut p = plan(vec![
+            agent("ui", &["api"]),
+            agent("docs", &[]),
+            agent("api", &[]),
+        ]);
+        assert_eq!(p.prerequisites("ui"), ["api"]);
+        assert!(p.prerequisites("docs").is_empty());
+        p.mode = Mode::Sequential;
+        assert!(p.prerequisites("docs").is_empty());
+        assert_eq!(p.prerequisites("api"), ["docs"]);
+        assert_eq!(p.prerequisites("ui"), ["docs", "api"]);
     }
 
     #[test]
@@ -618,7 +643,6 @@ mod tests {
         assert_eq!(store.open_teams(&db, ws.id).unwrap().len(), 1);
 
         store.add_session(id, "s-1", "api");
-        assert_eq!(store.session_agent("s-1"), Some((id, "api".into())));
         assert_eq!(store.agent_sessions(id, "api"), ["s-1"]);
         assert_eq!(store.take_sessions(id), ["s-1"]);
         assert!(store.take_sessions(id).is_empty());

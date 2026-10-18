@@ -1,8 +1,9 @@
 //! Real PTY session lifecycle (ConPTY on Windows). Backend is the sole authority over processes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -15,6 +16,8 @@ pub enum PtyError {
     Duplicate(String),
     #[error("session not found: {0}")]
     NotFound(String),
+    #[error("session {0} was stopped before it started")]
+    StoppedBeforeStart(String),
     #[error("pty error: {0}")]
     Pty(String),
     #[error("io error: {0}")]
@@ -37,15 +40,21 @@ pub struct SpawnSpec {
 pub enum PtyEvent {
     Output(Vec<u8>),
     /// Process ended; `None` if the exit code could not be read.
-    Exited(Option<u32>),
+    /// `code` is `None` if it could not be read; `killed` if `PtyManager::kill` ended it.
+    Exited {
+        code: Option<u32>,
+        killed: bool,
+    },
 }
 
 pub type EventSink = Arc<dyn Fn(&str, PtyEvent) + Send + Sync>;
 
 struct Session {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// Own lock: a blocking write must not hold the session map (kill would deadlock).
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    killed: Arc<AtomicBool>,
 }
 
 type Sessions = Arc<Mutex<HashMap<String, Session>>>;
@@ -53,6 +62,31 @@ type Sessions = Arc<Mutex<HashMap<String, Session>>>;
 #[derive(Default)]
 pub struct PtyManager {
     sessions: Sessions,
+    /// Ids killed before their spawn registered them (e.g. a UI that unmounted mid-spawn):
+    /// such a spawn is refused instead of leaving an orphan process.
+    stopped_early: Mutex<HashSet<String>>,
+}
+
+/// Bound for `stopped_early`: ids are never reused, so stale entries are only a small leak.
+const MAX_STOPPED_EARLY: usize = 1024;
+
+/// Wait for `child` up to `limit`; on timeout kill and reap it and return `None`.
+pub fn wait_timeout(
+    child: &mut std::process::Child,
+    limit: std::time::Duration,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(s) = child.try_wait()? {
+            return Ok(Some(s));
+        }
+        if start.elapsed() > limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 fn pty_err(e: impl std::fmt::Display) -> PtyError {
@@ -64,6 +98,9 @@ impl PtyManager {
         let mut sessions = self.sessions.lock().map_err(pty_err)?;
         if sessions.contains_key(id) {
             return Err(PtyError::Duplicate(id.to_owned()));
+        }
+        if self.stopped_early.lock().map_err(pty_err)?.remove(id) {
+            return Err(PtyError::StoppedBeforeStart(id.to_owned()));
         }
 
         let pair = native_pty_system()
@@ -86,18 +123,20 @@ impl PtyManager {
         let mut reader = pair.master.try_clone_reader().map_err(pty_err)?;
         let writer = pair.master.take_writer().map_err(pty_err)?;
         let killer = child.clone_killer();
+        let killed = Arc::new(AtomicBool::new(false));
         sessions.insert(
             id.to_owned(),
             Session {
                 master: pair.master,
-                writer,
+                writer: Arc::new(Mutex::new(writer)),
                 killer,
+                killed: Arc::clone(&killed),
             },
         );
         drop(sessions);
 
         // Waiter: on exit, drop the session (closes the PTY so the reader hits EOF).
-        let (code_tx, code_rx) = mpsc::channel::<Option<u32>>();
+        let (code_tx, code_rx) = mpsc::channel::<(Option<u32>, bool)>();
         let waiter_sessions = Arc::clone(&self.sessions);
         let waiter_id = id.to_owned();
         thread::spawn(move || {
@@ -105,7 +144,7 @@ impl PtyManager {
             if let Ok(mut s) = waiter_sessions.lock() {
                 s.remove(&waiter_id);
             }
-            let _ = code_tx.send(code);
+            let _ = code_tx.send((code, killed.load(Ordering::SeqCst)));
         });
 
         // Reader: forward output in order, then report exit once output is drained.
@@ -118,18 +157,23 @@ impl PtyManager {
                     Ok(n) => sink(&reader_id, PtyEvent::Output(buf[..n].to_vec())),
                 }
             }
-            sink(&reader_id, PtyEvent::Exited(code_rx.recv().ok().flatten()));
+            let (code, killed) = code_rx.recv().unwrap_or((None, false));
+            sink(&reader_id, PtyEvent::Exited { code, killed });
         });
         Ok(())
     }
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<(), PtyError> {
-        let mut sessions = self.sessions.lock().map_err(pty_err)?;
-        let s = sessions
-            .get_mut(id)
-            .ok_or_else(|| PtyError::NotFound(id.to_owned()))?;
-        s.writer.write_all(data)?;
-        Ok(s.writer.flush()?)
+        let writer = {
+            let sessions = self.sessions.lock().map_err(pty_err)?;
+            let s = sessions
+                .get(id)
+                .ok_or_else(|| PtyError::NotFound(id.to_owned()))?;
+            Arc::clone(&s.writer)
+        };
+        let mut w = writer.lock().map_err(pty_err)?;
+        w.write_all(data)?;
+        Ok(w.flush()?)
     }
 
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), PtyError> {
@@ -149,9 +193,15 @@ impl PtyManager {
 
     pub fn kill(&self, id: &str) -> Result<(), PtyError> {
         let mut sessions = self.sessions.lock().map_err(pty_err)?;
-        let s = sessions
-            .get_mut(id)
-            .ok_or_else(|| PtyError::NotFound(id.to_owned()))?;
+        let Some(s) = sessions.get_mut(id) else {
+            let mut early = self.stopped_early.lock().map_err(pty_err)?;
+            if early.len() >= MAX_STOPPED_EARLY {
+                early.clear();
+            }
+            early.insert(id.to_owned());
+            return Err(PtyError::NotFound(id.to_owned()));
+        };
+        s.killed.store(true, Ordering::SeqCst);
         let res = s.killer.kill();
         // portable-pty 0.9.0 (pinned) inverts TerminateProcess's result on Windows:
         // Err means success, Ok means failure. Remove when upstream is fixed.
@@ -218,7 +268,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{e:?}; got {:?}", String::from_utf8_lossy(&out)))
             {
                 PtyEvent::Output(b) => out.extend(b),
-                PtyEvent::Exited(code) => {
+                PtyEvent::Exited { code, .. } => {
                     return (String::from_utf8_lossy(&out).into_owned(), code);
                 }
             }
@@ -265,6 +315,15 @@ mod tests {
         wait_exit(&rx);
         assert!(!m.is_running("k2"));
         assert!(matches!(m.kill("k2"), Err(PtyError::NotFound(_))));
+
+        // Killed before it was spawned: the spawn is refused, nothing is left running.
+        let (sink, _rx) = collect();
+        assert!(m.kill("k3").is_err());
+        assert!(matches!(
+            m.spawn("k3", cmd(&["/k"]), sink),
+            Err(PtyError::StoppedBeforeStart(_))
+        ));
+        assert!(!m.is_running("k3"));
     }
 
     /// Real `claude` in a PTY: must stay registered while its UI is up. Run with `--ignored`.
@@ -322,7 +381,7 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(15);
         let mut exited = None;
         while std::time::Instant::now() < deadline {
-            if let Ok(PtyEvent::Exited(code)) = rx.recv_timeout(Duration::from_millis(200)) {
+            if let Ok(PtyEvent::Exited { code, .. }) = rx.recv_timeout(Duration::from_millis(200)) {
                 exited = Some(code);
                 break;
             }
@@ -364,7 +423,7 @@ mod tests {
         while let Ok(ev) = rx.recv_timeout(Duration::from_secs(15)) {
             match ev {
                 PtyEvent::Output(d) => out.extend(d),
-                PtyEvent::Exited(_) => break,
+                PtyEvent::Exited { .. } => break,
             }
         }
         let text = String::from_utf8_lossy(&out);

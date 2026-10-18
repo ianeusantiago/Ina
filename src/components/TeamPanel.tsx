@@ -6,6 +6,7 @@ import {
   generatePlan,
   listTeams,
   ORCHESTRATOR_ID,
+  prerequisites,
   workspaceTrusted,
   type PlanDraft,
 } from "../lib/team";
@@ -28,6 +29,7 @@ function AgentTerminal({
   title,
   subtitle,
   lazy,
+  waitingFor,
   maximized,
   onToggleMaximize,
 }: {
@@ -39,6 +41,8 @@ function AgentTerminal({
   onToggleMaximize: () => void;
   /** Resumed teams open sessions on demand, so the task is not re-sent unasked. */
   lazy: boolean;
+  /** Prerequisite agents; the backend refuses to start until they are done. */
+  waitingFor: string[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(!lazy);
@@ -51,6 +55,11 @@ function AgentTerminal({
       <section className="flex h-full min-h-0 flex-col items-start gap-2 rounded border border-line bg-panel p-3 text-xs">
         <span className="font-medium">{title}</span>
         <span className="text-muted">{subtitle}</span>
+        {waitingFor.length > 0 && (
+          <span className="text-amber-300">
+            {t("team.waitingFor", { agents: waitingFor.join(", ") })}
+          </span>
+        )}
         <button className={button} onClick={() => setOpen(true)}>
           {t("team.openTerminal")}
         </button>
@@ -149,23 +158,28 @@ export function TeamPanel({
               title={t("team.orchestrator")}
               subtitle={p.summary}
               lazy={lazy}
+              waitingFor={[]}
               maximized={maxId === ORCHESTRATOR_ID}
               onToggleMaximize={toggle(ORCHESTRATOR_ID)}
             />
           </div>
-          {p.agents.map((a) => (
-            <div key={a.id} className={cell(a.id)}>
-              <AgentTerminal
-                planId={id}
-                agentId={a.id}
-                title={a.name}
-                subtitle={a.role}
-                lazy={lazy}
-                maximized={maxId === a.id}
-                onToggleMaximize={toggle(a.id)}
-              />
-            </div>
-          ))}
+          {p.agents.map((a) => {
+            const waitingFor = prerequisites(p, a.id);
+            return (
+              <div key={a.id} className={cell(a.id)}>
+                <AgentTerminal
+                  planId={id}
+                  agentId={a.id}
+                  title={a.name}
+                  subtitle={a.role}
+                  lazy={lazy || waitingFor.length > 0}
+                  waitingFor={waitingFor}
+                  maximized={maxId === a.id}
+                  onToggleMaximize={toggle(a.id)}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     );

@@ -55,12 +55,11 @@ export function TerminalPane({
     observer.observe(el);
 
     setStatus({ kind: "starting" });
-    const started = spawn(id, term.cols, term.rows, (msg) => {
+    spawn(id, term.cols, term.rows, (msg) => {
       if (!alive) return;
       if (msg.type === "output") term.write(new Uint8Array(msg.data));
       else setStatus({ kind: "exited", code: msg.code });
-    });
-    started
+    })
       .then(() => alive && setStatus({ kind: "running" }))
       .catch((e: unknown) => alive && setStatus({ kind: "error", message: String(e) }));
 
@@ -70,12 +69,8 @@ export function TerminalPane({
       input.dispose();
       resize.dispose();
       term.dispose();
-      // Kill only once spawn has settled: an early kill (e.g. StrictMode remount) would miss the
-      // not-yet-registered session and orphan the process.
-      started.then(
-        () => killPty(id).catch(() => undefined), // already exited is fine
-        () => undefined,
-      );
+      // Already exited is fine; a kill that beats the spawn makes the backend refuse it.
+      killPty(id).catch(() => undefined);
     };
   }, [generation, spawn]);
 

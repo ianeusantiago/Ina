@@ -267,6 +267,8 @@ pub struct TaskRow {
     pub agent_id: String,
     pub status: String,
     pub summary: Option<String>,
+    /// Detail of the latest history entry.
+    pub detail: Option<String>,
     pub updated_at: String,
 }
 
@@ -292,7 +294,9 @@ impl Store {
     pub fn tasks(&self, team: i64) -> Result<Vec<TaskRow>, StoreError> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT agent_id, status, summary, updated_at FROM tasks WHERE team_id = ?1              ORDER BY rowid",
+            "SELECT agent_id, status, summary, updated_at, (SELECT detail FROM task_events e \
+             WHERE e.team_id = t.team_id AND e.agent_id = t.agent_id ORDER BY e.id DESC LIMIT 1) \
+             FROM tasks t WHERE team_id = ?1              ORDER BY rowid",
         )?;
         let rows = stmt.query_map([team], |r| {
             Ok(TaskRow {
@@ -300,9 +304,21 @@ impl Store {
                 status: r.get(1)?,
                 summary: r.get(2)?,
                 updated_at: r.get(3)?,
+                detail: r.get(4)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn task_status(&self, team: i64, agent: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn()?
+            .query_row(
+                "SELECT status FROM tasks WHERE team_id = ?1 AND agent_id = ?2",
+                params![team, agent],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     /// Change a task's status only if it is still `from`, recording the change in its history.
@@ -334,6 +350,7 @@ impl Store {
     }
 
     /// Status history of one agent, oldest first: (status, detail, at).
+    #[cfg(test)]
     pub fn task_history(
         &self,
         team: i64,

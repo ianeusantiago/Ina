@@ -76,12 +76,27 @@ pub fn simplify(p: PathBuf) -> PathBuf {
 /// session's ids, messaging socket and token). `ANTHROPIC_*` auth settings are kept.
 pub fn stripped_env(vars: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     vars.into_iter()
-        .filter(|k| {
-            k.to_string_lossy()
-                .to_ascii_uppercase()
-                .starts_with("CLAUDE")
-        })
+        .filter(|k| is_session_var(&k.to_string_lossy().to_ascii_uppercase()))
         .collect()
+}
+
+/// Variables the parent Claude Code session sets for itself (ids, tokens, sockets). User
+/// configuration such as `CLAUDE_CONFIG_DIR` or `CLAUDE_CODE_GIT_BASH_PATH` is kept.
+fn is_session_var(k: &str) -> bool {
+    const EXACT: &[&str] = &[
+        "CLAUDECODE",
+        "CLAUDE_PID",
+        "CLAUDE_EFFORT",
+        "CLAUDE_PLUGIN_DATA",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_SSE_PORT",
+    ];
+    k.starts_with("CLAUDE")
+        && (EXACT.contains(&k)
+            || ["SESSION", "TOKEN", "MESSAGING", "SECRET"]
+                .iter()
+                .any(|w| k.contains(w)))
 }
 
 pub fn validate_args(args: &[String]) -> Result<(), PolicyError> {
@@ -135,14 +150,22 @@ mod tests {
         let names = [
             "CLAUDECODE",
             "CLAUDE_CODE_MESSAGING_TOKEN",
+            "CLAUDE_CODE_SESSION_ID",
             "claude_pid",
+            "CLAUDE_CONFIG_DIR",
+            "CLAUDE_CODE_GIT_BASH_PATH",
             "ANTHROPIC_API_KEY",
             "PATH",
         ];
         let out = stripped_env(names.iter().map(std::ffi::OsString::from));
         assert_eq!(
             out,
-            ["CLAUDECODE", "CLAUDE_CODE_MESSAGING_TOKEN", "claude_pid"]
+            [
+                "CLAUDECODE",
+                "CLAUDE_CODE_MESSAGING_TOKEN",
+                "CLAUDE_CODE_SESSION_ID",
+                "claude_pid"
+            ]
         );
     }
 

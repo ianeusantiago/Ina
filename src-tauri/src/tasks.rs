@@ -244,10 +244,8 @@ impl Registry<'_> {
 
     pub fn status(&self, agent: &str) -> Result<Option<TaskStatus>, TaskError> {
         self.store
-            .tasks(self.team)?
-            .into_iter()
-            .find(|t| t.agent_id == agent)
-            .map(|t| TaskStatus::parse(&t.status))
+            .task_status(self.team, agent)?
+            .map(|s| TaskStatus::parse(&s))
             .transpose()
     }
 
@@ -305,9 +303,13 @@ impl Registry<'_> {
             return Ok(false);
         }
         match read_result(worktree)? {
-            Some(r) => self.transition(agent, r.status.into(), Some(&r.summary), Some(RESULT_FILE)),
+            Some(r) => self.apply(agent, &r),
             None => Ok(false),
         }
+    }
+
+    fn apply(&self, agent: &str, r: &AgentResult) -> Result<bool, TaskError> {
+        self.transition(agent, r.status.into(), Some(&r.summary), Some(RESULT_FILE))
     }
 
     /// The agent's process ended (or was lost): take its result, or record that it has none.
@@ -315,20 +317,13 @@ impl Registry<'_> {
         if self.status(agent)? != Some(TaskStatus::Running) {
             return Ok(()); // already cancelled or reported
         }
-        match read_result(worktree) {
-            Ok(Some(r)) => {
-                self.transition(agent, r.status.into(), Some(&r.summary), Some(RESULT_FILE))?;
-            }
-            Ok(None) => {
-                let detail = format!("{why} without {RESULT_FILE}");
-                self.transition(agent, TaskStatus::Failed, None, Some(&detail))?;
-            }
-            Err(e) => {
-                let detail = format!("{why}; {e}");
-                self.transition(agent, TaskStatus::Failed, None, Some(&detail))?;
-            }
-        }
-        Ok(())
+        let detail = match read_result(worktree) {
+            Ok(Some(r)) => return self.apply(agent, &r).map(|_| ()),
+            Ok(None) => format!("{why} without {RESULT_FILE}"),
+            Err(e) => format!("{why}; {e}"),
+        };
+        self.transition(agent, TaskStatus::Failed, None, Some(&detail))
+            .map(|_| ())
     }
 }
 
