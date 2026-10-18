@@ -1,6 +1,7 @@
 mod plan;
 mod policy;
 mod pty;
+mod setup;
 mod store;
 mod tasks;
 mod trust;
@@ -655,6 +656,12 @@ fn pty_kill(
     pty.kill(&id).map_err(|e| e.to_string())
 }
 
+/// First-run check of the Claude Code CLI (installed, onboarded, logged in).
+#[tauri::command]
+async fn claude_setup() -> Result<setup::ClaudeSetup, String> {
+    blocking(|| Ok(setup::check())).await
+}
+
 #[tauri::command]
 fn workspace_list(store: State<'_, Store>) -> Result<Vec<Workspace>, String> {
     store.list_workspaces().map_err(|e| e.to_string())
@@ -700,7 +707,8 @@ pub fn run() {
             team_integrate,
             team_cleanup,
             team_list,
-            team_tasks
+            team_tasks,
+            claude_setup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

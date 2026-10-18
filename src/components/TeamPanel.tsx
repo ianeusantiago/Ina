@@ -28,11 +28,15 @@ function AgentTerminal({
   title,
   subtitle,
   lazy,
+  maximized,
+  onToggleMaximize,
 }: {
   planId: number;
   agentId: string;
   title: string;
   subtitle: string;
+  maximized: boolean;
+  onToggleMaximize: () => void;
   /** Resumed teams open sessions on demand, so the task is not re-sent unasked. */
   lazy: boolean;
 }) {
@@ -53,7 +57,21 @@ function AgentTerminal({
       </section>
     );
   }
-  return <TerminalPane title={title} subtitle={subtitle} spawn={spawn} />;
+  return (
+    <TerminalPane
+      title={title}
+      subtitle={subtitle}
+      spawn={spawn}
+      actions={
+        <button
+          className="rounded px-2 py-0.5 text-muted hover:bg-line hover:text-zinc-100"
+          onClick={onToggleMaximize}
+        >
+          {t(maximized ? "terminal.restore" : "terminal.maximize")}
+        </button>
+      }
+    />
+  );
 }
 
 export function TeamPanel({
@@ -69,6 +87,7 @@ export function TeamPanel({
   const [request, setRequest] = useState("");
   const [stage, setStage] = useState<Stage>({ kind: "request" });
   const [error, setError] = useState<string | null>(null);
+  const [maxId, setMaxId] = useState<string | null>(null);
   const [untrusted, setUntrusted] = useState(false);
   const [openTeams, setOpenTeams] = useState<PlanDraft[]>([]);
 
@@ -111,7 +130,10 @@ export function TeamPanel({
     const { id, plan: p } = stage.draft;
     const lazy = stage.resumed;
     const count = p.agents.length + 1;
-    const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
+    const cols = maxId !== null ? 1 : count <= 2 ? count : count <= 4 ? 2 : 3;
+    // Hidden, not unmounted: a maximized pane must not kill the other sessions.
+    const cell = (agentId: string) => (maxId !== null && maxId !== agentId ? "hidden" : "min-h-0");
+    const toggle = (agentId: string) => () => setMaxId((cur) => (cur === agentId ? null : agentId));
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
         <IntegrationBar planId={id} />
@@ -120,22 +142,29 @@ export function TeamPanel({
           className="grid min-h-0 flex-1 gap-2"
           style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         >
-          <AgentTerminal
-            planId={id}
-            agentId={ORCHESTRATOR_ID}
-            title={t("team.orchestrator")}
-            subtitle={p.summary}
-            lazy={lazy}
-          />
-          {p.agents.map((a) => (
+          <div className={cell(ORCHESTRATOR_ID)}>
             <AgentTerminal
-              key={a.id}
               planId={id}
-              agentId={a.id}
-              title={a.name}
-              subtitle={a.role}
+              agentId={ORCHESTRATOR_ID}
+              title={t("team.orchestrator")}
+              subtitle={p.summary}
               lazy={lazy}
+              maximized={maxId === ORCHESTRATOR_ID}
+              onToggleMaximize={toggle(ORCHESTRATOR_ID)}
             />
+          </div>
+          {p.agents.map((a) => (
+            <div key={a.id} className={cell(a.id)}>
+              <AgentTerminal
+                planId={id}
+                agentId={a.id}
+                title={a.name}
+                subtitle={a.role}
+                lazy={lazy}
+                maximized={maxId === a.id}
+                onToggleMaximize={toggle(a.id)}
+              />
+            </div>
           ))}
         </div>
       </div>

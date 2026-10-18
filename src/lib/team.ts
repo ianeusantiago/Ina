@@ -57,6 +57,16 @@ export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
   invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
+export interface ClaudeSetup {
+  installed: boolean;
+  version: string | null;
+  onboarded: boolean;
+  loggedIn: boolean;
+  error: string | null;
+}
+
+export const claudeSetup = () => invoke<ClaudeSetup>("claude_setup");
+
 export type TaskStatus = "pending" | "running" | "done" | "failed" | "blocked" | "cancelled";
 
 export interface TaskView {

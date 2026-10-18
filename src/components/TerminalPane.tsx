@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -16,9 +16,12 @@ export function TerminalPane({
   title,
   subtitle,
   spawn,
+  actions,
 }: {
   title: string;
   subtitle?: string;
+  /** Extra header buttons. */
+  actions?: ReactNode;
   /** Must be stable (memoized); a new function restarts the session. */
   spawn: Spawner;
 }) {
@@ -96,6 +99,7 @@ export function TerminalPane({
           {label}
         </span>
         <span className="flex-1" />
+        {actions}
         <button
           className="rounded px-2 py-0.5 text-muted hover:bg-line hover:text-zinc-100"
           onClick={() => setGeneration((g) => g + 1)}

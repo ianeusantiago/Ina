@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SetupBanner } from "./components/SetupBanner";
 import { Sidebar } from "./components/Sidebar";
+import { LANGUAGES, setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
 import { addWorkspace, listWorkspaces, removeWorkspace, type Workspace } from "./lib/workspaces";
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +31,25 @@ export default function App() {
 
   return (
     <main className="flex h-full flex-col">
-      <header className="border-b border-line px-4 py-2 text-sm font-semibold tracking-wide">
-        {t("app.name")}
+      <header className="flex items-center border-b border-line px-4 py-2 text-sm">
+        <span className="font-semibold tracking-wide">{t("app.name")}</span>
+        <span className="flex-1" />
+        <label className="flex items-center gap-2 text-xs text-muted">
+          {t("app.language")}
+          <select
+            className="rounded border border-line bg-panel px-1 py-0.5 text-zinc-100"
+            value={i18n.language}
+            onChange={(e) => setLanguage(e.target.value as (typeof LANGUAGES)[number])}
+          >
+            {LANGUAGES.map((l) => (
+              <option key={l} value={l}>
+                {t(`app.languages.${l}`)}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
+      <SetupBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar
           workspaces={workspaces}

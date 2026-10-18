@@ -1,6 +1,11 @@
 {
   "app": {
-    "name": "INA"
+    "name": "INA",
+    "language": "Language",
+    "languages": {
+      "pt-BR": "Português",
+      "en": "English"
+    }
   },
   "terminal": {
     "restart": "Restart",
@@ -8,7 +13,9 @@
     "running": "Running",
     "exited": "Exited (code {{code}})",
     "exitedUnknown": "Exited",
-    "spawnError": "Failed to start session: {{error}}"
+    "spawnError": "Failed to start session: {{error}}",
+    "maximize": "Maximize",
+    "restore": "Restore"
   },
   "workspaces": {
     "title": "Workspaces",
@@ -78,5 +85,14 @@
       "blocked": "blocked",
       "cancelled": "cancelled"
     }
+  },
+  "setup": {
+    "checking": "Checking Claude Code…",
+    "title": "Claude Code is not ready yet",
+    "notInstalled": "Claude Code not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",
+    "notOnboarded": "First run pending: open a terminal, run claude and finish the initial setup.",
+    "notLoggedIn": "Not logged in: run claude in a terminal and log in (or set ANTHROPIC_API_KEY).",
+    "error": "Could not check: {{error}}",
+    "recheck": "Check again"
   }
 }
