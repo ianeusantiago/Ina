@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
 // Full team flow with real Claude Code sessions (costs tokens). Opt-in:
@@ -32,6 +33,12 @@ test("plan, approve, verify and preview integration", async ({ app }) => {
   await app.getByRole("button", { name: "Cancel", exact: true }).click();
 });
 
+async function box(l: Locator) {
+  const b = await l.boundingBox();
+  if (!b) throw new Error("element not rendered");
+  return b;
+}
+
 test("resizes the task area by dragging and with the keyboard", async ({ app }) => {
   test.skip(!workspace, "set INA_E2E_WORKSPACE (with an open team) to run");
   await app.getByRole("combobox").first().selectOption("en");
@@ -39,15 +46,15 @@ test("resizes the task area by dragging and with the keyboard", async ({ app }) 
   await app.getByRole("button", { name: "Resume" }).first().click();
   const handle = app.getByRole("separator", { name: /Resize panels/ });
   const area = handle.locator("xpath=preceding-sibling::div[1]");
-  const before = (await area.boundingBox())!.height;
-  const box = (await handle.boundingBox())!;
-  await app.mouse.move(box.x + box.width / 2, box.y + 2);
+  const before = (await box(area)).height;
+  const h = await box(handle);
+  await app.mouse.move(h.x + h.width / 2, h.y + 2);
   await app.mouse.down();
-  await app.mouse.move(box.x + box.width / 2, box.y + 120, { steps: 5 });
+  await app.mouse.move(h.x + h.width / 2, h.y + 120, { steps: 5 });
   await app.mouse.up();
-  const dragged = (await area.boundingBox())!.height;
+  const dragged = (await box(area)).height;
   expect(dragged).toBeGreaterThan(before + 60);
   await handle.focus();
   await app.keyboard.press("ArrowUp");
-  expect((await area.boundingBox())!.height).toBeLessThan(dragged);
+  expect((await box(area)).height).toBeLessThan(dragged);
 });
