@@ -1,22 +1,24 @@
 # INA — Estado
 
-**Fase atual:** 1 (MVP), passo 6 de 10 concluído (falta commit, feito na pausa).
+**Fase atual:** 1 (MVP), passo 7 concluído (plano, aprovação, worktrees, integração, persistência).
 
 ## Feito (verificado)
-1. Toolchain: Rust stable-msvc, VS Build Tools 2022, Smart App Control desligado pelo usuário.
-2. Scaffold Tauri 2 + React 19 + TS strict + Vite + Tailwind 4 + xterm.js + i18next (pt-BR/EN); ESLint, Prettier, Vitest.
-3. `src-tauri/src/pty.rs`: PtyManager (ConPTY) spawn/write/resize/kill + código de saída. Testes ok.
-4. Terminal xterm no app (status, Reiniciar, Parar), verificado via CDP do WebView2.
-5. `policy.rs`: allowlist de `.exe` (claude, powershell), cwd dentro do workspace, limites de args/sessões, `simplify` remove `\\?\`.
-6. `store.rs`: SQLite (rusqlite bundled) com migrações; workspaces add/list/remove; sidebar na UI; terminal abre no diretório do workspace (verificado no app).
+1-6. Toolchain, scaffold, PTY, policy, SQLite/workspaces (ver git log).
+7. Plano via `claude -p --json-schema` → aprovação → N+1 sessões; env `CLAUDE*` removido dos filhos; trust de pasta só leitura (`trust.rs`); git worktree por agente (`worktree.rs`, branch `ina/<run>/<agente>`); integração `merge --no-ff` em ordem topológica, aborta em conflito; cleanup mata sessões e remove worktrees; equipes persistidas (migração 2 `teams`) e retomáveis. E2E no app via CDP ok.
 
-Testes: Rust 12/12, Vitest 2/2, tsc/eslint/prettier limpos.
+Testes: Rust 28/28 (+4 ignorados reais), clippy, tsc/eslint/prettier, Vitest 2/2.
+
+## Em aberto
+- (a) "Forçar remoção" (2ª confirmação) p/ worktree integrado com arquivos não rastreados.
+- Possível sessão claude duplicada ao abrir 1 terminal (StrictMode? kill x spawn).
 
 ## Próximos passos
-7. Plano do orquestrador: `claude -p` com saída JSON (schema do plano) → tela de aprovação → spawn N+1 sessões `claude`.
 8. Protocolo `.ina/` (task.json, result.json, events.jsonl) + task_registry + painel de tarefas.
-9. i18n/layout final (grid redimensionável), checagem de primeira execução do Claude Code.
+9. i18n/layout final, checagem de primeira execução do Claude Code.
 10. code-review, security-review, simplify; docs da Fase 1.
+
+## Bloqueios
+- RAM 7,3 GB (~92% em uso): Claude Code mata `tauri dev` em background. Fechar apps pesados ao testar.
 
 ## Decisões
 - `portable-pty` fixado em `=0.9.0`: `kill` no Windows tem resultado invertido (contornado em `PtyManager::kill`).
