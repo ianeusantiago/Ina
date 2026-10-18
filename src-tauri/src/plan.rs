@@ -343,8 +343,9 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
 
 /// Tools the orchestrator may not use: it reviews, the user integrates through INA.
 const ORCHESTRATOR_DENIED: &[&str] = &[
-    // Write stays possible only with your approval (default permission mode) and never in the
-    // agents' worktrees, git internals or INA's event log; `.ina/outbox/` is pre-allowed below.
+    // No file edits except `.ina/outbox/` (pre-allowed below; verified with `claude -p` that
+    // the specific allow wins over this bare deny). Path denies are kept as defense in depth.
+    "Edit",
     "NotebookEdit",
     "Edit(.ina/worktrees/**)",
     "Edit(.git/**)",

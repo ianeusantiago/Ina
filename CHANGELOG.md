@@ -12,6 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Integration preview with `git merge-tree` (no refs or files touched) and overlapping-file warnings.
 - `previousAttempt` in `task.json` when a task is re-run.
 - Playwright E2E attached to the app over CDP; opt-in full team flow.
+- Draggable (and keyboard-resizable) divider between the task/message panels and the terminals, remembered per machine.
 
 ### Security
 - Orchestrator writes: outbox pre-allowed; agent worktrees, `.git/` and the event log denied.
@@ -19,7 +20,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Terminal notices are user-triggered and contain no digits; integration only merges done agents.
 
 ### Changed
-- The orchestrator starts in Claude Code's default permission mode and may write (each write asks you) so it can propose instructions; Edit and git write commands stay denied.
+- The orchestrator starts in Claude Code's default permission mode; its only file writes are proposals in `.ina/outbox/` (Edit and git write commands stay denied).
+- Main README is now in Portuguese (`README.md`); English moved to `README.en.md`.
+
+### Fixed
+- Agent timeout no longer kills a session whose task already finished or is being verified.
+- A verification error marks the task failed instead of leaving it stuck in `verifying`.
+- Prerequisites are not merged into a worktree while another session of that agent is running.
+- Outbox messages are restored to the outbox if storing them fails (no silent loss).
+- Message length limit counts characters, not bytes (accented text was rejected early).
 
 ## Phase 1 (MVP)
 
