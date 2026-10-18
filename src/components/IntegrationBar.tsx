@@ -14,7 +14,7 @@ type Result =
   | { kind: "integrate"; steps: IntegrateStep[] }
   | { kind: "cleanup"; rows: CleanupResult[] };
 
-type Action = "integrate" | "cleanup";
+type Action = "integrate" | "cleanup" | "forceCleanup";
 
 const button =
   "rounded border border-line px-2 py-0.5 text-xs hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
@@ -43,7 +43,11 @@ export function IntegrationBar({ planId }: { planId: number }) {
   const status = () => run(async () => ({ kind: "status", rows: await teamStatus(planId) }));
   const integrate = () =>
     run(async () => ({ kind: "integrate", steps: await teamIntegrate(planId) }));
-  const cleanup = () => run(async () => ({ kind: "cleanup", rows: await teamCleanup(planId) }));
+  const cleanup = (discardUntracked: boolean) =>
+    run(async () => ({ kind: "cleanup", rows: await teamCleanup(planId, discardUntracked) }));
+  const confirmed = (action: Action) =>
+    action === "integrate" ? integrate() : cleanup(action === "forceCleanup");
+  const cleanupFailed = result?.kind === "cleanup" && result.rows.some((r) => r.error);
 
   return (
     <section className="flex flex-col gap-1 rounded border border-line bg-panel px-3 py-2 text-xs">
@@ -62,15 +66,20 @@ export function IntegrationBar({ planId }: { planId: number }) {
             <button className={button} disabled={busy} onClick={() => setConfirm("cleanup")}>
               {t("integration.cleanup")}
             </button>
+            {cleanupFailed && (
+              <button
+                className={`${button} border-red-900 text-red-300`}
+                disabled={busy}
+                onClick={() => setConfirm("forceCleanup")}
+              >
+                {t("integration.forceCleanup")}
+              </button>
+            )}
           </>
         ) : (
           <>
             <span className="text-zinc-100">{t(`integration.confirm.${confirm}`)}</span>
-            <button
-              className={button}
-              disabled={busy}
-              onClick={() => void (confirm === "integrate" ? integrate() : cleanup())}
-            >
+            <button className={button} disabled={busy} onClick={() => void confirmed(confirm)}>
               {t("integration.yes")}
             </button>
             <button className={button} disabled={busy} onClick={() => setConfirm(null)}>

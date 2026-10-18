@@ -48,7 +48,8 @@
     "cleanup": "Clean up worktrees",
     "confirm": {
       "integrate": "Merge the agents' branches into the workspace's current branch?",
-      "cleanup": "Stop the agent terminals first. Remove the worktrees and already-merged branches?"
+      "cleanup": "Stop the team's terminals and remove the worktrees and already merged branches?",
+      "forceCleanup": "Delete the UNTRACKED files of the worktrees that failed? Only merged branches with no modified tracked files are removed. This cannot be undone."
     },
     "yes": "Confirm",
     "cancel": "Cancel",
@@ -59,6 +60,7 @@
     "skipped": "no new commits",
     "conflict": "conflict in {{files}}; merge aborted, nothing changed",
     "removed": "removed",
-    "untracked": "untracked (not merged): {{files}}"
+    "untracked": "untracked (not merged): {{files}}",
+    "forceCleanup": "Force removal"
   }
 }

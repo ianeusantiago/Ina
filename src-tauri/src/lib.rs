@@ -292,6 +292,7 @@ async fn team_cleanup(
     store: State<'_, Store>,
     plans: State<'_, PlanStore>,
     plan_id: u64,
+    discard_untracked: bool,
 ) -> Result<Vec<CleanupResult>, String> {
     let (git, team) = team_git(&store, &plans, plan_id)?;
     let sessions = plans.take_sessions(plan_id);
@@ -316,7 +317,10 @@ async fn team_cleanup(
             .into_iter()
             .map(|(agent_id, wt)| CleanupResult {
                 agent_id,
-                error: git.cleanup(&wt).err().map(|e| e.to_string()),
+                error: git
+                    .cleanup(&wt, discard_untracked)
+                    .err()
+                    .map(|e| e.to_string()),
             })
             .collect())
     })

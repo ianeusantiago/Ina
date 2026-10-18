@@ -48,7 +48,8 @@
     "cleanup": "Limpar worktrees",
     "confirm": {
       "integrate": "Fazer merge das branches dos agentes na branch atual do workspace?",
-      "cleanup": "Pare os terminais dos agentes antes. Remover os worktrees e as branches já integradas?"
+      "cleanup": "Encerrar os terminais da equipe e remover os worktrees e as branches já integradas?",
+      "forceCleanup": "Apagar os arquivos NÃO rastreados dos worktrees que falharam? Só remove branches já integradas e sem arquivos rastreados modificados. Não dá para desfazer."
     },
     "yes": "Confirmar",
     "cancel": "Cancelar",
@@ -59,6 +60,7 @@
     "skipped": "sem commits novos",
     "conflict": "conflito em {{files}}; merge abortado, nada foi alterado",
     "removed": "removido",
-    "untracked": "não rastreados (fora do merge): {{files}}"
+    "untracked": "não rastreados (fora do merge): {{files}}",
+    "forceCleanup": "Forçar remoção"
   }
 }

@@ -55,5 +55,6 @@ export interface CleanupResult {
 export const teamStatus = (planId: number) => invoke<AgentBranch[]>("team_status", { planId });
 export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
-export const teamCleanup = (planId: number) => invoke<CleanupResult[]>("team_cleanup", { planId });
+export const teamCleanup = (planId: number, discardUntracked = false) =>
+  invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
 export const listTeams = (workspaceId: number) => invoke<PlanDraft[]>("team_list", { workspaceId });

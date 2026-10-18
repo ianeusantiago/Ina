@@ -14,6 +14,8 @@ pub enum WorktreeError {
     NoCommits,
     #[error("git {0}: {1}")]
     Git(String, String),
+    #[error("{0}")]
+    Unsafe(&'static str),
     #[error("worktree io: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -217,11 +219,31 @@ impl Git {
     /// Remove a worktree (refused by git if it has uncommitted or untracked files) and delete
     /// its branch only if it is merged (`-d`, never `-D`). Safe to retry after a partial run,
     /// e.g. when a running session kept the directory locked.
-    pub fn cleanup(&self, wt: &Worktree) -> Result<(), WorktreeError> {
+    /// Remove an agent worktree and its merged branch. With `discard_untracked`, untracked
+    /// files are deleted too, but only when the branch is fully merged into HEAD and no tracked
+    /// file is modified, so committed and modified work is never lost.
+    pub fn cleanup(&self, wt: &Worktree, discard_untracked: bool) -> Result<(), WorktreeError> {
         self.run(&["worktree", "prune"])?; // forget worktrees whose directory is gone
         if self.is_registered(wt)? {
             let path = wt.path.to_string_lossy().to_string();
-            self.run(&["worktree", "remove", &path])?;
+            if discard_untracked {
+                if self
+                    .run(&["merge-base", "--is-ancestor", &wt.branch, "HEAD"])
+                    .is_err()
+                {
+                    return Err(WorktreeError::Unsafe(
+                        "branch is not merged; nothing was removed",
+                    ));
+                }
+                if self.status(wt)?.dirty {
+                    return Err(WorktreeError::Unsafe(
+                        "worktree has modified tracked files; nothing was removed",
+                    ));
+                }
+                self.run(&["worktree", "remove", "--force", &path])?;
+            } else {
+                self.run(&["worktree", "remove", &path])?;
+            }
         }
         if wt.path.exists() {
             fs::remove_dir(&wt.path)?; // only succeeds when empty
@@ -384,10 +406,10 @@ mod tests {
         assert!(g.root.join("api.txt").exists());
         assert_eq!(g.status(&team[0]).unwrap().ahead, 0);
 
-        g.cleanup(&team[0]).unwrap();
+        g.cleanup(&team[0], false).unwrap();
         assert!(!team[0].path.exists());
         // Uncommitted work is never discarded.
-        assert!(g.cleanup(&team[1]).is_err());
+        assert!(g.cleanup(&team[1], false).is_err());
         assert!(team[1].path.join("wip.txt").exists());
     }
 
@@ -411,7 +433,7 @@ mod tests {
         assert_eq!(g.run(&["rev-parse", "HEAD"]).unwrap(), merged);
         assert!(g.root_is_clean().unwrap());
         // Branch b is unmerged: `branch -d` refuses, so its commits survive.
-        assert!(g.cleanup(&team[1]).is_err());
+        assert!(g.cleanup(&team[1], false).is_err());
         assert!(g.run(&["rev-parse", "--verify", &team[1].branch]).is_ok());
     }
 
@@ -426,9 +448,36 @@ mod tests {
         let path = team[0].path.to_string_lossy().to_string();
         g.run(&["worktree", "remove", &path]).unwrap();
         fs::create_dir_all(&team[0].path).unwrap();
-        g.cleanup(&team[0]).unwrap();
+        g.cleanup(&team[0], false).unwrap();
         assert!(!team[0].path.exists());
         assert_eq!(g.run(&["branch", "--list", "ina/*"]).unwrap(), "");
-        g.cleanup(&team[0]).unwrap(); // idempotent
+        g.cleanup(&team[0], false).unwrap(); // idempotent
+    }
+
+    #[test]
+    fn forced_cleanup_only_discards_untracked_files_of_merged_branches() {
+        let g = repo("force", true);
+        identity(&g);
+        fs::write(g.root.join("README.md"), "r").unwrap();
+        g.run(&["add", "README.md"]).unwrap();
+        g.run(&["commit", "-m", "readme"]).unwrap();
+        let team = g.create_team("r", &["a", "b", "c"]).unwrap();
+        commit_file(&g, &team[0], "a.txt", "a");
+        assert_eq!(g.merge(&team[0].branch).unwrap(), MergeOutcome::Merged);
+        fs::write(team[0].path.join("cache.pyc"), "x").unwrap();
+        assert!(g.cleanup(&team[0], false).is_err());
+        g.cleanup(&team[0], true).unwrap();
+        assert!(!team[0].path.exists());
+
+        // Unmerged branch: refused, untracked file kept.
+        commit_file(&g, &team[1], "b.txt", "b");
+        fs::write(team[1].path.join("wip.txt"), "x").unwrap();
+        assert!(g.cleanup(&team[1], true).is_err());
+        assert!(team[1].path.join("wip.txt").exists());
+
+        // Merged (no commits) but a tracked file modified: refused.
+        fs::write(team[2].path.join("README.md"), "edited").unwrap();
+        assert!(g.cleanup(&team[2], true).is_err());
+        assert!(team[2].path.exists());
     }
 }
