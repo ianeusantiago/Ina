@@ -9,8 +9,9 @@ mod trust;
 mod verify;
 mod worktree;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use plan::{Plan, PlanStore};
 use policy::Program;
@@ -676,7 +677,9 @@ async fn pty_spawn_agent(
     }
     let spawned = pty.spawn(&id, spec, sink);
     if spawned.is_ok() && is_agent {
-        watch_timeout(app_for_timeout, plan_id, agent_id.clone(), id.clone());
+        app_for_timeout
+            .state::<Deadlines>()
+            .watch(id.clone(), plan_id, agent_id.clone());
     }
     if let Err(e) = spawned {
         if is_agent && !other_live_session(&pty, &plans, plan_id, &agent_id, &id) {
@@ -692,6 +695,17 @@ async fn pty_spawn_agent(
         return Err(e.to_string());
     }
     Ok(())
+}
+
+/// One lock per worktree path, for git operations that must not interleave in it.
+fn worktree_lock(dir: &std::path::Path) -> Result<Arc<Mutex<()>>, String> {
+    static LOCKS: Mutex<Option<HashMap<PathBuf, Arc<Mutex<()>>>>> = Mutex::new(None);
+    let mut locks = LOCKS.lock().map_err(|e| e.to_string())?;
+    Ok(locks
+        .get_or_insert_default()
+        .entry(dir.to_path_buf())
+        .or_default()
+        .clone())
 }
 
 /// Merge every finished prerequisite's branch into the dependent's worktree (so it builds on
@@ -725,9 +739,10 @@ async fn merge_prerequisites(
     let dir = wt.path.clone();
     let branches: Vec<String> = prerequisites.iter().map(|p| p.branch.clone()).collect();
     blocking(move || {
-        // Two spawns of one agent (e.g. a remounted terminal) must not race on the git index.
-        static MERGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = MERGING.lock().map_err(|e| e.to_string())?;
+        // Two spawns of one agent (e.g. a remounted terminal) must not race on its git index;
+        // other worktrees merge independently.
+        let lock = worktree_lock(&dir)?;
+        let _guard = lock.lock().map_err(|e| e.to_string())?;
         for b in &branches {
             if git.is_merged_in(&dir, b) {
                 continue;
@@ -748,17 +763,43 @@ async fn merge_prerequisites(
     Ok(prerequisites)
 }
 
-/// Fail and stop an agent session that outlives `AGENT_TIMEOUT`.
-fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: String) {
-    std::thread::spawn(move || {
+/// Agent sessions and when they time out; checked by the background tick.
+#[derive(Default)]
+struct Deadlines(Mutex<HashMap<String, (u64, String, std::time::Instant)>>);
+
+impl Deadlines {
+    fn watch(&self, session: String, plan_id: u64, agent: String) {
         let deadline = std::time::Instant::now() + AGENT_TIMEOUT;
-        let pty = app.state::<PtyManager>();
-        while std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            if !pty.is_running(&session) {
-                return;
+        match self.0.lock() {
+            Ok(mut d) => {
+                d.insert(session, (plan_id, agent, deadline));
             }
+            Err(e) => eprintln!("task {agent}: timeout not watched: {e}"),
         }
+    }
+
+    /// Forget ended sessions; return the live ones past their deadline.
+    fn expired(&self, pty: &PtyManager) -> Vec<(String, u64, String)> {
+        let Ok(mut d) = self.0.lock() else {
+            return Vec::new();
+        };
+        let now = std::time::Instant::now();
+        d.retain(|session, _| pty.is_running(session));
+        let late: Vec<String> = d
+            .iter()
+            .filter(|(_, (_, _, at))| *at <= now)
+            .map(|(s, _)| s.clone())
+            .collect();
+        late.into_iter()
+            .filter_map(|s| d.remove(&s).map(|(plan, agent, _)| (s, plan, agent)))
+            .collect()
+    }
+}
+
+/// Fail and stop agent sessions that outlive `AGENT_TIMEOUT`.
+fn reap_timeouts(app: &tauri::AppHandle) {
+    let pty = app.state::<PtyManager>();
+    for (session, plan_id, agent) in app.state::<Deadlines>().expired(&pty) {
         let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let failed = plans
             .approved(&store, plan_id)
@@ -785,7 +826,7 @@ fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: St
             Ok(false) => {}
             Err(e) => eprintln!("task {agent}: recording timeout failed: {e}"),
         }
-    });
+    }
 }
 
 /// An agent's process ended: cancelled if INA killed it, otherwise its result (or the lack of
@@ -856,7 +897,16 @@ fn kick_verifications(
     team: &plan::Team,
     rows: &[tasks::Task],
 ) -> Result<(), String> {
-    static RUNNING: std::sync::Mutex<Vec<(u64, String)>> = std::sync::Mutex::new(Vec::new());
+    static RUNNING: Mutex<Option<std::collections::HashSet<(u64, String)>>> = Mutex::new(None);
+    /// Releases the claim when the verification thread ends, even if it panics.
+    struct Claim((u64, String));
+    impl Drop for Claim {
+        fn drop(&mut self) {
+            if let Ok(mut running) = RUNNING.lock() {
+                running.get_or_insert_default().remove(&self.0);
+            }
+        }
+    }
     for t in rows {
         if t.status != TaskStatus::Verifying {
             continue;
@@ -864,14 +914,15 @@ fn kick_verifications(
         let key = (plan_id, t.agent_id.clone());
         {
             let mut running = RUNNING.lock().map_err(|e| e.to_string())?;
-            if running.contains(&key) {
+            if !running.get_or_insert_default().insert(key.clone()) {
                 continue;
             }
-            running.push(key.clone());
         }
+        let claim = Claim(key);
         let app = app.clone();
         let team = team.clone();
         std::thread::spawn(move || {
+            let key = &claim.0;
             if let Err(e) = verify_agent(&app, plan_id, &team, &key.1) {
                 eprintln!("verify {}: {e}", key.1);
                 // Not left in `verifying`, where every poll would retry it.
@@ -889,9 +940,6 @@ fn kick_verifications(
                 if let Err(e2) = failed {
                     eprintln!("verify {}: recording failure failed: {e2}", key.1);
                 }
-            }
-            if let Ok(mut running) = RUNNING.lock() {
-                running.retain(|k| k != &key);
             }
         });
     }
@@ -1273,6 +1321,7 @@ fn tick_loop(app: &tauri::AppHandle) {
     let mut last_errors = std::collections::HashMap::<u64, String>::new();
     loop {
         std::thread::sleep(TICK);
+        reap_timeouts(app);
         let workspaces = match store.list_workspaces() {
             Ok(w) => w,
             Err(e) => {
@@ -1330,6 +1379,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
         .manage(PlanStore::default())
+        .manage(Deadlines::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
