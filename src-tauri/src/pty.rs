@@ -29,6 +29,8 @@ pub struct SpawnSpec {
     pub cwd: PathBuf,
     pub cols: u16,
     pub rows: u16,
+    /// Inherited environment variables removed before spawning.
+    pub env_remove: Vec<std::ffi::OsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +77,9 @@ impl PtyManager {
         let mut cmd = CommandBuilder::new(&spec.program);
         cmd.args(&spec.args);
         cmd.cwd(&spec.cwd);
+        for k in &spec.env_remove {
+            cmd.env_remove(k);
+        }
         let mut child = pair.slave.spawn_command(cmd).map_err(pty_err)?;
         drop(pair.slave);
 
@@ -195,13 +200,14 @@ mod tests {
             cwd: std::env::temp_dir(),
             cols: 80,
             rows: 24,
+            env_remove: vec![],
         }
     }
 
     /// Spawn and answer ConPTY's initial cursor-position query (DSR), as xterm.js does in the app.
     fn start(m: &PtyManager, id: &str, spec: SpawnSpec, sink: EventSink) {
         m.spawn(id, spec, sink).unwrap();
-        let _ = m.write(id, b"[1;1R");
+        let _ = m.write(id, b"\x1b[1;1R");
     }
 
     fn wait_exit(rx: &mpsc::Receiver<PtyEvent>) -> (String, Option<u32>) {
@@ -259,5 +265,110 @@ mod tests {
         wait_exit(&rx);
         assert!(!m.is_running("k2"));
         assert!(matches!(m.kill("k2"), Err(PtyError::NotFound(_))));
+    }
+
+    /// Real `claude` in a PTY: must stay registered while its UI is up. Run with `--ignored`.
+    #[test]
+    #[ignore]
+    fn real_claude_stays_registered() {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let program =
+            crate::policy::resolve_program(crate::policy::Program::Claude, &path).unwrap();
+        let (sink, rx) = collect();
+        let m = PtyManager::default();
+        let spec = SpawnSpec {
+            program,
+            args: vec!["say hi".into()],
+            cwd: std::env::temp_dir(),
+            cols: 80,
+            rows: 24,
+            env_remove: vec![],
+        };
+        m.spawn("c", spec, sink).unwrap();
+        std::thread::sleep(Duration::from_secs(8));
+        let mut out = Vec::new();
+        while let Ok(PtyEvent::Output(d)) = rx.try_recv() {
+            out.extend(d);
+        }
+        let running = m.is_running("c");
+        let _ = m.kill("c");
+        println!("running={running} bytes={}", out.len());
+        assert!(running);
+    }
+
+    /// Real `claude` declining the trust prompt must report `Exited`. Run with `--ignored`.
+    #[test]
+    #[ignore]
+    fn real_claude_exit_is_reported() {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let program =
+            crate::policy::resolve_program(crate::policy::Program::Claude, &path).unwrap();
+        let cwd = std::env::temp_dir().join(format!("ina-untrusted-{}", std::process::id()));
+        std::fs::create_dir_all(&cwd).unwrap();
+        let (sink, rx) = collect();
+        let m = PtyManager::default();
+        let spec = SpawnSpec {
+            program,
+            args: vec![],
+            cwd,
+            cols: 80,
+            rows: 24,
+            env_remove: vec![],
+        };
+        m.spawn("c", spec, sink).unwrap();
+        m.write("c", b"\x1b[1;1R").unwrap(); // answer ConPTY's cursor query
+        std::thread::sleep(Duration::from_secs(6));
+        m.write("c", b"\r").unwrap(); // default choice: "No, exit"
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        let mut exited = None;
+        while std::time::Instant::now() < deadline {
+            if let Ok(PtyEvent::Exited(code)) = rx.recv_timeout(Duration::from_millis(200)) {
+                exited = Some(code);
+                break;
+            }
+        }
+        println!("exited={exited:?} running={}", m.is_running("c"));
+        let _ = m.kill("c");
+        assert!(exited.is_some());
+    }
+
+    /// Child sees no inherited `CLAUDE*` vars. Meaningful when run from inside Claude Code.
+    #[test]
+    #[ignore]
+    fn child_env_has_no_claude_vars() {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let cwd = std::env::temp_dir();
+        let args = [
+            "-NoProfile",
+            "-Command",
+            "(Get-ChildItem env:).Name -like 'CLAUDE*' -join ',' ; 'END'",
+        ];
+        let spec = crate::policy::authorize(
+            crate::policy::Program::Shell,
+            args.iter().map(|s| s.to_string()).collect(),
+            &cwd,
+            &cwd,
+            0,
+            &path,
+        )
+        .unwrap();
+        assert!(
+            !spec.env_remove.is_empty(),
+            "run from a Claude Code session"
+        );
+        let (sink, rx) = collect();
+        let m = PtyManager::default();
+        m.spawn("e", spec, sink).unwrap();
+        m.write("e", b"[1;1R").unwrap();
+        let mut out = Vec::new();
+        while let Ok(ev) = rx.recv_timeout(Duration::from_secs(15)) {
+            match ev {
+                PtyEvent::Output(d) => out.extend(d),
+                PtyEvent::Exited(_) => break,
+            }
+        }
+        let text = String::from_utf8_lossy(&out);
+        println!("{text}");
+        assert!(text.contains("END") && !text.contains("CLAUDE"));
     }
 }

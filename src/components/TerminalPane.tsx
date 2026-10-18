@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { killPty, resizePty, spawnShell, writePty } from "../lib/pty";
+import { killPty, resizePty, writePty, type Spawner } from "../lib/pty";
 
 type Status =
   | { kind: "starting" }
@@ -12,7 +12,16 @@ type Status =
 
 const report = (e: unknown) => console.error("[pty]", e);
 
-export function TerminalPane({ title, workspaceId }: { title: string; workspaceId: number }) {
+export function TerminalPane({
+  title,
+  subtitle,
+  spawn,
+}: {
+  title: string;
+  subtitle?: string;
+  /** Must be stable (memoized); a new function restarts the session. */
+  spawn: Spawner;
+}) {
   const { t } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
   const sessionId = useRef<string | null>(null);
@@ -22,7 +31,7 @@ export function TerminalPane({ title, workspaceId }: { title: string; workspaceI
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    const id = `shell-${crypto.randomUUID()}`;
+    const id = `s-${crypto.randomUUID()}`;
     sessionId.current = id;
     let alive = true;
 
@@ -43,7 +52,7 @@ export function TerminalPane({ title, workspaceId }: { title: string; workspaceI
     observer.observe(el);
 
     setStatus({ kind: "starting" });
-    spawnShell(workspaceId, id, term.cols, term.rows, (msg) => {
+    spawn(id, term.cols, term.rows, (msg) => {
       if (!alive) return;
       if (msg.type === "output") term.write(new Uint8Array(msg.data));
       else setStatus({ kind: "exited", code: msg.code });
@@ -59,7 +68,7 @@ export function TerminalPane({ title, workspaceId }: { title: string; workspaceI
       term.dispose();
       killPty(id).catch(() => undefined); // already exited is fine
     };
-  }, [generation, workspaceId]);
+  }, [generation, spawn]);
 
   const label =
     status.kind === "running"
@@ -76,6 +85,7 @@ export function TerminalPane({ title, workspaceId }: { title: string; workspaceI
     <section className="flex h-full min-h-0 flex-col rounded border border-line bg-panel">
       <header className="flex items-center gap-3 border-b border-line px-3 py-1.5 text-xs">
         <span className="font-medium">{title}</span>
+        {subtitle && <span className="truncate text-muted">{subtitle}</span>}
         <span className="text-muted" role="status">
           {label}
         </span>

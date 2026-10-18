@@ -17,5 +17,20 @@
     "add": "Add",
     "remove": "Remove {{name}}",
     "selectHint": "Select or add a workspace to open a terminal."
+  },
+  "team": {
+    "title": "Team",
+    "requestLabel": "Describe the task and the team",
+    "requestPlaceholder": "E.g.: 2 agents — one for the API, one for tests",
+    "generate": "Generate plan",
+    "planning": "Planning…",
+    "approve": "Approve and open {{count}} sessions",
+    "orchestrator": "Orchestrator",
+    "scope": "Scope",
+    "dependsOn": "Depends on",
+    "mode": {
+      "parallel": "Parallel execution",
+      "sequential": "Sequential execution"
+    }
   }
 }

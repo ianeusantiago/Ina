@@ -1,3 +1,4 @@
+mod plan;
 mod policy;
 mod pty;
 mod store;
@@ -5,6 +6,7 @@ mod store;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use plan::{Plan, PlanStore};
 use policy::Program;
 use pty::{PtyEvent, PtyManager};
 use serde::Serialize;
@@ -30,6 +32,18 @@ fn valid_id(id: &str) -> Result<(), String> {
     } else {
         Err("invalid session id".into())
     }
+}
+
+fn channel_sink(on_event: Channel<PtyMessage>) -> pty::EventSink {
+    Arc::new(move |_id: &str, ev: PtyEvent| {
+        let msg = match ev {
+            PtyEvent::Output(data) => PtyMessage::Output { data },
+            PtyEvent::Exited(code) => PtyMessage::Exited { code },
+        };
+        if let Err(e) = on_event.send(msg) {
+            eprintln!("pty channel send failed: {e}");
+        }
+    })
 }
 
 /// Opens a shell session. The program is fixed by the backend; the frontend never chooses it.
@@ -60,16 +74,97 @@ fn pty_spawn_shell(
     .map_err(|e| e.to_string())?;
     spec.cols = cols.max(1);
     spec.rows = rows.max(1);
-    let sink = Arc::new(move |_id: &str, ev: PtyEvent| {
-        let msg = match ev {
-            PtyEvent::Output(data) => PtyMessage::Output { data },
-            PtyEvent::Exited(code) => PtyMessage::Exited { code },
-        };
-        if let Err(e) = on_event.send(msg) {
-            eprintln!("pty channel send failed: {e}");
-        }
-    });
-    pty.spawn(&id, spec, sink).map_err(|e| e.to_string())
+    pty.spawn(&id, spec, channel_sink(on_event))
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanDraft {
+    id: u64,
+    plan: Plan,
+}
+
+/// Ask the orchestrator (`claude -p`, no tools) for a team plan. The plan is stored unapproved.
+#[tauri::command]
+async fn plan_generate(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    workspace_id: i64,
+    request: String,
+) -> Result<PlanDraft, String> {
+    let request = request.trim().to_string();
+    if request.is_empty() || request.len() > plan::MAX_REQUEST_LEN {
+        return Err("request is empty or too long".into());
+    }
+    let root = store
+        .get_workspace(workspace_id)
+        .map_err(|e| e.to_string())?
+        .root();
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    // Session count 0: the planner is a short-lived child, not a PTY session.
+    let spec = policy::authorize(
+        Program::Claude,
+        plan::planner_args(&request),
+        &root,
+        &root,
+        0,
+        &path_var,
+    )
+    .map_err(|e| e.to_string())?;
+    let plan = tauri::async_runtime::spawn_blocking(move || plan::run_planner(&spec))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let id = plans.insert(workspace_id, plan.clone());
+    Ok(PlanDraft { id, plan })
+}
+
+#[tauri::command]
+fn plan_approve(plans: State<'_, PlanStore>, plan_id: u64) -> Result<(), String> {
+    plans.approve(plan_id).map_err(|e| e.to_string())
+}
+
+/// Opens an interactive `claude` session for the orchestrator or one agent of an approved plan.
+/// The prompt is built here from the stored plan, never taken from the frontend.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn pty_spawn_agent(
+    pty: State<'_, PtyManager>,
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+    agent_id: String,
+    id: String,
+    cols: u16,
+    rows: u16,
+    on_event: Channel<PtyMessage>,
+) -> Result<(), String> {
+    valid_id(&id)?;
+    let (workspace_id, plan) = plans.approved(plan_id).map_err(|e| e.to_string())?;
+    let prompt = if agent_id == plan::ORCHESTRATOR_ID {
+        plan::orchestrator_prompt(&plan)
+    } else {
+        plan::agent_prompt(&plan, plan.agent(&agent_id).map_err(|e| e.to_string())?)
+    };
+    let root = store
+        .get_workspace(workspace_id)
+        .map_err(|e| e.to_string())?
+        .root();
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let mut spec = policy::authorize(
+        Program::Claude,
+        vec![prompt],
+        &root,
+        &root,
+        pty.count(),
+        &path_var,
+    )
+    .map_err(|e| e.to_string())?;
+    spec.cols = cols.max(1);
+    spec.rows = rows.max(1);
+    pty.spawn(&id, spec, channel_sink(on_event))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -110,6 +205,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
+        .manage(PlanStore::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -118,6 +214,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             pty_spawn_shell,
+            pty_spawn_agent,
+            plan_generate,
+            plan_approve,
             pty_write,
             pty_resize,
             pty_kill,

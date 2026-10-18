@@ -70,6 +70,18 @@ pub fn simplify(p: PathBuf) -> PathBuf {
     }
 }
 
+/// Inherited variables a child must not see: everything `CLAUDE*` (the parent Claude Code
+/// session's ids, messaging socket and token). `ANTHROPIC_*` auth settings are kept.
+pub fn stripped_env(vars: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    vars.into_iter()
+        .filter(|k| {
+            k.to_string_lossy()
+                .to_ascii_uppercase()
+                .starts_with("CLAUDE")
+        })
+        .collect()
+}
+
 pub fn validate_args(args: &[String]) -> Result<(), PolicyError> {
     if args.len() > MAX_ARGS {
         return Err(PolicyError::BadArg(format!(
@@ -107,6 +119,7 @@ pub fn authorize(
         cwd: validate_cwd(workspace_root, cwd)?,
         cols: 80,
         rows: 24,
+        env_remove: stripped_env(std::env::vars_os().map(|(k, _)| k)),
     })
 }
 
@@ -114,6 +127,22 @@ pub fn authorize(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn strips_only_claude_vars() {
+        let names = [
+            "CLAUDECODE",
+            "CLAUDE_CODE_MESSAGING_TOKEN",
+            "claude_pid",
+            "ANTHROPIC_API_KEY",
+            "PATH",
+        ];
+        let out = stripped_env(names.iter().map(std::ffi::OsString::from));
+        assert_eq!(
+            out,
+            ["CLAUDECODE", "CLAUDE_CODE_MESSAGING_TOKEN", "claude_pid"]
+        );
+    }
 
     fn tempdir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("ina-policy-{name}-{}", std::process::id()));

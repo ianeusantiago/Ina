@@ -17,5 +17,20 @@
     "add": "Adicionar",
     "remove": "Remover {{name}}",
     "selectHint": "Selecione ou adicione um workspace para abrir um terminal."
+  },
+  "team": {
+    "title": "Equipe",
+    "requestLabel": "Descreva a tarefa e a equipe",
+    "requestPlaceholder": "Ex.: 2 agentes — um para a API, outro para os testes",
+    "generate": "Gerar plano",
+    "planning": "Planejando…",
+    "approve": "Aprovar e abrir {{count}} sessões",
+    "orchestrator": "Orquestrador",
+    "scope": "Escopo",
+    "dependsOn": "Depende de",
+    "mode": {
+      "parallel": "Execução em paralelo",
+      "sequential": "Execução sequencial"
+    }
   }
 }
