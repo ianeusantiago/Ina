@@ -3,7 +3,6 @@
 //! before any agent session is spawned.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -58,6 +57,62 @@ pub struct AgentSpec {
     pub acceptance: Vec<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Commands that check the acceptance criteria; run in the agent's worktree after it
+    /// reports done. Approved together with the plan.
+    #[serde(default)]
+    pub verify: Vec<Check>,
+}
+
+pub const MAX_CHECKS: usize = 4;
+const MAX_CHECK_ARGS: usize = 16;
+const MAX_CHECK_ARG_LEN: usize = 200;
+
+/// Programs a verification command may use (`.cmd` shims such as npm are not allowed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckProgram {
+    Cargo,
+    Node,
+    Python,
+    Pytest,
+}
+
+impl CheckProgram {
+    pub fn program(self) -> crate::policy::Program {
+        use crate::policy::Program;
+        match self {
+            Self::Cargo => Program::Cargo,
+            Self::Node => Program::Node,
+            Self::Python => Program::Python,
+            Self::Pytest => Program::Pytest,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Cargo => "cargo",
+            Self::Node => "node",
+            Self::Python => "python",
+            Self::Pytest => "pytest",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Check {
+    pub program: CheckProgram,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+impl Check {
+    /// Display form, e.g. `pytest test_x.py`.
+    pub fn display(&self) -> String {
+        std::iter::once(self.program.name())
+            .chain(self.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,7 +124,7 @@ pub struct Plan {
 }
 
 /// JSON schema handed to `claude --json-schema`. Must match `Plan` (camelCase).
-pub const PLAN_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["summary","mode","agents"],"properties":{"summary":{"type":"string"},"mode":{"type":"string","enum":["parallel","sequential"]},"agents":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["id","name","role","scope","task","acceptance","dependsOn"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9][a-z0-9-]{0,31}$"},"name":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"task":{"type":"string"},"acceptance":{"type":"array","items":{"type":"string"}},"dependsOn":{"type":"array","items":{"type":"string"}}}}}}}"#;
+pub const PLAN_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["summary","mode","agents"],"properties":{"summary":{"type":"string"},"mode":{"type":"string","enum":["parallel","sequential"]},"agents":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["id","name","role","scope","task","acceptance","dependsOn","verify"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9][a-z0-9-]{0,31}$"},"name":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"task":{"type":"string"},"acceptance":{"type":"array","items":{"type":"string"}},"dependsOn":{"type":"array","items":{"type":"string"}},"verify":{"type":"array","maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["program","args"],"properties":{"program":{"type":"string","enum":["cargo","node","python","pytest"]},"args":{"type":"array","maxItems":16,"items":{"type":"string"}}}}}}}}}}"#;
 
 fn valid_agent_id(id: &str) -> bool {
     let b = id.as_bytes();
@@ -106,6 +161,16 @@ impl Plan {
                 || a.acceptance.len() > 32
             {
                 return bad(format!("agent {} has empty or oversized fields", a.id));
+            }
+            let bad_check = a.verify.len() > MAX_CHECKS
+                || a.verify.iter().any(|c| {
+                    c.args.len() > MAX_CHECK_ARGS
+                        || c.args
+                            .iter()
+                            .any(|x| x.len() > MAX_CHECK_ARG_LEN || x.contains('\0'))
+                });
+            if bad_check {
+                return bad(format!("agent {} has invalid verification commands", a.id));
             }
         }
         for a in &self.agents {
@@ -200,7 +265,10 @@ pub fn planner_prompt(request: &str) -> String {
         "You are the INA orchestrator planner. Break the user's request into a small team of \
          AI coding agents (1 to {MAX_AGENTS}). For each agent give a short kebab-case id, a name, \
          a role, the scope (files/areas it owns, non-overlapping where possible), the concrete \
-         task, verifiable acceptance criteria, and dependsOn (ids it must wait for). Choose mode \
+         task, verifiable acceptance criteria, dependsOn (ids it must wait for), and verify: up \
+         to {MAX_CHECKS} commands that check the criteria automatically, using only the programs \
+         cargo, node, python or pytest (e.g. {{\"program\": \"pytest\", \"args\": [\"test_x.py\"]}}); \
+         they run in the agent's worktree, so use [] when nothing can be checked. Choose mode \
          \"parallel\" when agents can work at the same time, otherwise \"sequential\". Do not \
          modify any files; only return the plan.\n\nUser request:\n{request}"
     )
@@ -232,8 +300,13 @@ pub fn orchestrator_prompt(plan: &Plan, worktrees: &HashMap<String, Worktree>) -
          worktree; their changes do not appear in your checkout until integrated. Monitor the \
          branches read-only (e.g. `git log HEAD..<branch>`, `git diff HEAD...<branch>`), \
          validate results against the acceptance criteria, and report honestly whether the team \
-         is ready to integrate. Each agent reports in `<worktree>/.ina/result.json` and every \n         status change is appended to `.ina/events.jsonl` in this directory. Never merge, rebase, reset or commit yourself: the user \
-         integrates through INA after reviewing. Do not do the agents' work yourself.",
+         is ready to integrate. Each agent reports in `<worktree>/.ina/result.json`; every status \
+         change is appended to `.ina/events.jsonl` in this directory. To instruct an agent, \
+         write a JSON file to `.ina/outbox/<name>.json` in this directory: {{\"type\": \
+         \"instruction\", \"to\": \"<agent id>\", \"text\": \"...\"}}; the user approves it in INA \
+         before it is delivered. Write no other files. Never merge, rebase, reset or commit \
+         yourself: the user integrates through INA after reviewing. Do not do the agents' work \
+         yourself.",
         plan.mode,
         plan.summary,
         team.join("\n")
@@ -246,7 +319,14 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
         "You are agent \"{}\" ({}) in an INA team. Overall goal: {}\n\nYour scope: {}\n\
          Your task: {}\n\nAcceptance criteria:\n{}\n\nDepends on: {}. You work in your own git \
          worktree on branch `{}`; commit your work there and do not touch other branches. Stay \
-         within your scope. Your assignment is also in `.ina/task.json`. When you finish, fail or \n         are blocked, write `.ina/result.json` as JSON: {{\"status\": \"done\" | \"failed\" | \n         \"blocked\", \"summary\": \"...\", \"files\": [\"changed paths\"], \"notes\": \"optional\"}}. \n         INA reads it to track your status; never report done unless the criteria are met.",
+         within your scope. Your assignment is also in `.ina/task.json`. When you finish, fail or \
+         are blocked, write `.ina/result.json` as JSON: {{\"status\": \"done\" | \"failed\" | \
+         \"blocked\", \"summary\": \"...\", \"files\": [\"changed paths\"], \"notes\": \
+         \"optional\"}}; INA reads it to track your status. Never report done unless the criteria \
+         are met. To ask the user something, report progress or hand off to another agent, write \
+         `.ina/outbox/<name>.json`: {{\"type\": \"question\" | \"progress\" | \"blocked\" | \
+         \"handoff\", \"text\": \"...\", \"to\": \"<agent id, optional>\"}}. Answers and \
+         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it. If `.ina/task.json` has          `previousAttempt`, an earlier run ended that way: fix that first.",
         agent.name,
         agent.role,
         plan.summary,
@@ -264,9 +344,13 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
 
 /// Tools the orchestrator may not use: it reviews, the user integrates through INA.
 const ORCHESTRATOR_DENIED: &[&str] = &[
+    // Write stays possible only with your approval (default permission mode) and never in the
+    // agents' worktrees, git internals or INA's event log; `.ina/outbox/` is pre-allowed below.
     "Edit",
-    "Write",
     "NotebookEdit",
+    "Edit(.ina/worktrees/**)",
+    "Edit(.git/**)",
+    "Edit(.ina/events.jsonl)",
     "Bash(git merge:*)",
     "Bash(git rebase:*)",
     "Bash(git reset:*)",
@@ -279,7 +363,14 @@ const ORCHESTRATOR_DENIED: &[&str] = &[
 
 /// Prompt first: `--disallowedTools` is variadic and would swallow a trailing prompt.
 pub fn orchestrator_args(prompt: String) -> Vec<String> {
-    let mut args = vec![prompt, "--disallowedTools".to_string()];
+    let mut args = vec![
+        prompt,
+        "--permission-mode".to_string(),
+        "default".to_string(),
+        "--allowedTools".to_string(),
+        "Edit(.ina/outbox/**)".to_string(),
+        "--disallowedTools".to_string(),
+    ];
     args.extend(ORCHESTRATOR_DENIED.iter().map(|s| s.to_string()));
     args
 }
@@ -341,23 +432,12 @@ pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| fail(format!("spawn: {e}")))?;
-    let drain = |mut r: Box<dyn Read + Send>| {
-        std::thread::spawn(move || {
-            let mut s = String::new();
-            r.read_to_string(&mut s).map(|_| s)
-        })
-    };
-    let out = drain(Box::new(child.stdout.take().expect("piped")));
-    let err = drain(Box::new(child.stderr.take().expect("piped")));
-    let status = crate::pty::wait_timeout(&mut child, PLANNER_TIMEOUT)
-        .map_err(|e| fail(e.to_string()))?
-        .ok_or_else(|| fail("timed out".into()))?;
-    let stdout = out
-        .join()
-        .map_err(|_| fail("stdout reader panicked".into()))?;
-    let stdout = stdout.map_err(|e| fail(format!("read stdout: {e}")))?;
+    let (status, output) =
+        crate::pty::wait_output(&mut child, PLANNER_TIMEOUT).map_err(|e| fail(e.to_string()))?;
+    let status = status.ok_or_else(|| fail("timed out".into()))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if !status.success() && stdout.trim().is_empty() {
-        let stderr = err.join().ok().and_then(Result::ok).unwrap_or_default();
+        let stderr = String::from_utf8_lossy(&output.stderr);
         let tail: String = stderr
             .chars()
             .rev()
@@ -524,6 +604,7 @@ mod tests {
             task: "do it".into(),
             acceptance: vec!["tests pass".into()],
             depends_on: deps.iter().map(|d| d.to_string()).collect(),
+            verify: vec![],
         }
     }
 
@@ -544,6 +625,26 @@ mod tests {
         ]);
         let ids: Vec<_> = p.topo_order().iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, ["docs", "api", "ui"]);
+    }
+
+    #[test]
+    fn verification_commands_are_bounded() {
+        let mut a = agent("api", &[]);
+        a.verify = vec![Check {
+            program: CheckProgram::Pytest,
+            args: vec!["test_api.py".into()],
+        }];
+        assert_eq!(a.verify[0].display(), "pytest test_api.py");
+        plan(vec![a.clone()]).validate().unwrap();
+        a.verify = vec![a.verify[0].clone(); MAX_CHECKS + 1];
+        assert!(plan(vec![a.clone()]).validate().is_err());
+        a.verify = vec![Check {
+            program: CheckProgram::Node,
+            args: vec!["x\0y".into()],
+        }];
+        assert!(plan(vec![a]).validate().is_err());
+        // npm (a .cmd shim) is not a valid program.
+        assert!(serde_json::from_str::<Check>(r#"{"program":"npm","args":["test"]}"#).is_err());
     }
 
     #[test]

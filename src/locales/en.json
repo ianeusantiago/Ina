@@ -47,7 +47,11 @@
     "agents_one": "{{count}} agent",
     "agents_other": "{{count}} agents",
     "openTerminal": "Open terminal",
-    "waitingFor": "Waits for: {{agents}}"
+    "waitingFor": "Waits for: {{agents}}",
+    "blocked": "Blocked: a prerequisite failed",
+    "verify": "Verification",
+    "noVerify": "none (stays unverified)",
+    "verifyNote": "Approving lets INA run these commands in each agent's worktree."
   },
   "integration": {
     "title": "Integration",
@@ -70,7 +74,16 @@
     "removed": "removed",
     "untracked": "untracked (not merged): {{files}}",
     "forceCleanup": "Force removal",
-    "failed": "failed, integration stopped (earlier merges kept): {{error}}"
+    "failed": "failed, integration stopped (earlier merges kept): {{error}}",
+    "preview": {
+      "title": "Preview (nothing was changed):",
+      "clean": "clean merge",
+      "skipped": "no new commits",
+      "conflict": "predicted conflict in {{files}}; integration would stop here",
+      "notReached": "would not be attempted (stops at the conflict)",
+      "overlap": "{{file}} was changed by {{agents}}: review how they combine",
+      "unavailable": "Preview unavailable ({{error}}). You can still integrate."
+    }
   },
   "tasks": {
     "title": "Tasks",
@@ -85,8 +98,10 @@
       "done": "done",
       "failed": "failed",
       "blocked": "blocked",
-      "cancelled": "cancelled"
-    }
+      "cancelled": "cancelled",
+      "verifying": "verifying"
+    },
+    "autoStart": "Start dependents automatically"
   },
   "setup": {
     "checking": "Checking Claude Code…",
@@ -96,5 +111,40 @@
     "notLoggedIn": "Not logged in: run claude in a terminal and log in (or set ANTHROPIC_API_KEY).",
     "error": "Could not check: {{error}}",
     "recheck": "Check again"
+  },
+  "messages": {
+    "title": "Messages",
+    "none": "No messages.",
+    "approve": "Approve",
+    "reject": "Reject",
+    "reply": "Reply",
+    "send": "Send",
+    "to": "To",
+    "placeholder": "Message to the agent…",
+    "replyingTo": "Reply to: {{text}}",
+    "who": {
+      "user": "You",
+      "orchestrator": "Orchestrator"
+    },
+    "kind": {
+      "progress": "progress",
+      "question": "question",
+      "blocked": "blocked",
+      "handoff": "handoff",
+      "instruction": "instruction",
+      "reply": "reply",
+      "invalid": "invalid"
+    },
+    "status": {
+      "received": "received",
+      "proposed": "awaiting approval",
+      "delivered": "delivered",
+      "rejected": "rejected",
+      "undelivered": "undelivered"
+    },
+    "notify": "Notify terminal",
+    "notifyHint": "Types one fixed line into the agent's terminal asking it to read .ina/inbox/. Use it when the agent is not showing a permission prompt.",
+    "notified": "Notice sent to the terminal.",
+    "notOpen": "The agent's terminal is not open; the message waits in its inbox."
   }
 }

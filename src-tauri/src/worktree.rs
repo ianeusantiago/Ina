@@ -16,6 +16,9 @@ pub enum WorktreeError {
     Git(String, String),
     #[error("{0}")]
     Unsafe(&'static str),
+    /// `merge-tree` exit 1 (conflicts), with its stdout.
+    #[error("conflicts")]
+    GitOutput(String),
     #[error("worktree io: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -59,6 +62,10 @@ impl Git {
             .output()?;
         if out.status.success() {
             Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else if args.contains(&"merge-tree") && out.status.code() == Some(1) {
+            Err(WorktreeError::GitOutput(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ))
         } else {
             Err(WorktreeError::Git(
                 args.first().copied().unwrap_or_default().to_string(),
@@ -192,18 +199,126 @@ impl Git {
     }
 
     /// Merge one branch into HEAD (`--no-ff`). A conflict is aborted, leaving HEAD unchanged.
+    /// Simulate merging `branches` into HEAD in order, without touching any ref, index or
+    /// working tree (`git merge-tree --write-tree`; intermediate results are unreferenced
+    /// commit objects). Returns, per branch, `None` if clean or the conflicting files; stops
+    /// after the first conflict, like `merge` does.
+    pub fn preview_merges(
+        &self,
+        branches: &[String],
+    ) -> Result<Vec<Option<Vec<String>>>, WorktreeError> {
+        let mut base = self.run(&["rev-parse", "HEAD"])?;
+        let mut out = Vec::new();
+        for b in branches {
+            let res = self.run(&[
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                "--no-messages",
+                &base,
+                b,
+            ]);
+            match res {
+                Ok(tree) => {
+                    let tree = tree.lines().next().unwrap_or_default().to_owned();
+                    base = self.run(&[
+                        "-c",
+                        "user.name=INA preview",
+                        "-c",
+                        "user.email=ina@localhost",
+                        "commit-tree",
+                        &tree,
+                        "-p",
+                        &base,
+                        "-p",
+                        b,
+                        "-m",
+                        "ina preview",
+                    ])?;
+                    out.push(None);
+                }
+                Err(WorktreeError::GitOutput(stdout)) => {
+                    // Exit 1: first line is the tree, then one conflicted path per line.
+                    let files = stdout
+                        .lines()
+                        .skip(1)
+                        .filter(|l| !l.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                    out.push(Some(files));
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Check out `branch` (detached) at `path`, a throwaway copy of exactly what was committed.
+    pub fn snapshot(&self, branch: &str, path: &Path) -> Result<(), WorktreeError> {
+        let p = path.to_string_lossy().to_string();
+        self.run(&["worktree", "add", "--detach", &p, branch])
+            .map(|_| ())
+    }
+
+    /// Remove a snapshot made by `snapshot` (INA-owned, so forced).
+    pub fn remove_snapshot(&self, path: &Path) -> Result<(), WorktreeError> {
+        let p = path.to_string_lossy().to_string();
+        self.run(&["worktree", "remove", "--force", &p]).map(|_| ())
+    }
+
+    /// Files touched by `branch`'s own commits: not in HEAD, not from merges, not from the
+    /// `exclude`d branches (e.g. prerequisites INA merged into it).
+    pub fn own_files(
+        &self,
+        branch: &str,
+        exclude: &[String],
+    ) -> Result<Vec<String>, WorktreeError> {
+        let mut args = vec![
+            "log",
+            "--no-merges",
+            "--name-only",
+            "--format=",
+            branch,
+            "^HEAD",
+        ];
+        let negated: Vec<String> = exclude.iter().map(|b| format!("^{b}")).collect();
+        args.extend(negated.iter().map(String::as_str));
+        let mut files: Vec<String> = self
+            .run(&args)?
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        files.sort();
+        files.dedup();
+        Ok(files)
+    }
+
     pub fn merge(&self, branch: &str) -> Result<MergeOutcome, WorktreeError> {
+        self.merge_in(&self.root, branch)
+    }
+
+    /// Whether `branch` is already contained in the HEAD checked out at `dir`.
+    pub fn is_merged_in(&self, dir: &Path, branch: &str) -> bool {
+        self.run_in(dir, &["merge-base", "--is-ancestor", branch, "HEAD"])
+            .is_ok()
+    }
+
+    /// Merge `branch` into the HEAD checked out at `dir` (the root or an agent worktree);
+    /// a conflict is aborted so nothing changes.
+    pub fn merge_in(&self, dir: &Path, branch: &str) -> Result<MergeOutcome, WorktreeError> {
         let msg = format!("ina: merge {branch}");
-        match self.run(&["merge", "--no-ff", "--no-edit", "-m", &msg, branch]) {
+        match self.run_in(dir, &["merge", "--no-ff", "--no-edit", "-m", &msg, branch]) {
             Ok(_) => Ok(MergeOutcome::Merged),
             Err(e) => {
                 let files: Vec<String> = self
-                    .run(&["diff", "--name-only", "--diff-filter=U"])
+                    .run_in(dir, &["diff", "--name-only", "--diff-filter=U"])
                     .unwrap_or_default()
                     .lines()
                     .map(str::to_string)
                     .collect();
-                if self.run(&["merge", "--abort"]).is_err() || files.is_empty() {
+                if self.run_in(dir, &["merge", "--abort"]).is_err() || files.is_empty() {
                     return Err(e); // not a plain conflict: surface git's error
                 }
                 Ok(MergeOutcome::Conflict { files })
@@ -415,6 +530,63 @@ mod tests {
         // Uncommitted work is never discarded.
         assert!(g.cleanup(&team[1], false).is_err());
         assert!(team[1].path.join("wip.txt").exists());
+    }
+
+    #[test]
+    fn snapshot_has_only_committed_files() {
+        let g = repo("snapshot", true);
+        identity(&g);
+        let team = g.create_team("r", &["a"]).unwrap();
+        commit_file(&g, &team[0], "kept.txt", "k");
+        fs::write(team[0].path.join("loose.txt"), "x").unwrap();
+        let snap = g.root.join(".ina").join("verify-a");
+        g.snapshot(&team[0].branch, &snap).unwrap();
+        assert!(snap.join("kept.txt").exists() && !snap.join("loose.txt").exists());
+        g.remove_snapshot(&snap).unwrap();
+        assert!(!snap.exists());
+    }
+
+    #[test]
+    fn preview_predicts_conflicts_without_touching_anything() {
+        let g = repo("preview", true);
+        identity(&g);
+        let team = g.create_team("r", &["a", "b", "c"]).unwrap();
+        commit_file(&g, &team[0], "same.txt", "from a");
+        commit_file(&g, &team[1], "same.txt", "from b");
+        commit_file(&g, &team[2], "c.txt", "c");
+        let head = g.run(&["rev-parse", "HEAD"]).unwrap();
+        let branches: Vec<String> = team.iter().map(|w| w.branch.clone()).collect();
+        let p = g.preview_merges(&branches).unwrap();
+        // a is clean; b conflicts with a's change; c is not reached.
+        assert_eq!(p, vec![None, Some(vec!["same.txt".to_string()])]);
+        assert_eq!(g.run(&["rev-parse", "HEAD"]).unwrap(), head);
+        assert!(g.root_is_clean().unwrap());
+        assert!(!g.root.join("same.txt").exists());
+        let p = g.preview_merges(&[branches[2].clone()]).unwrap();
+        assert_eq!(p, vec![None]);
+    }
+
+    #[test]
+    fn prerequisite_branch_merges_into_dependent_worktree() {
+        let g = repo("prereq", true);
+        identity(&g);
+        let team = g.create_team("r", &["api", "ui"]).unwrap();
+        commit_file(&g, &team[0], "api.txt", "a");
+        assert!(!g.is_merged_in(&team[1].path, &team[0].branch));
+        assert_eq!(
+            g.merge_in(&team[1].path, &team[0].branch).unwrap(),
+            MergeOutcome::Merged
+        );
+        assert!(team[1].path.join("api.txt").exists());
+        assert!(g.is_merged_in(&team[1].path, &team[0].branch));
+        commit_file(&g, &team[1], "ui.txt", "u");
+        assert_eq!(
+            g.own_files(&team[1].branch, &[team[0].branch.clone()])
+                .unwrap(),
+            ["ui.txt"]
+        );
+        // The workspace root is untouched.
+        assert!(!g.root.join("api.txt").exists());
     }
 
     #[test]

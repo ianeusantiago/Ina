@@ -47,7 +47,11 @@
     "agents_one": "{{count}} agente",
     "agents_other": "{{count}} agentes",
     "openTerminal": "Abrir terminal",
-    "waitingFor": "Aguarda concluir: {{agents}}"
+    "waitingFor": "Aguarda concluir: {{agents}}",
+    "blocked": "Bloqueada: um pré-requisito falhou",
+    "verify": "Verificação",
+    "noVerify": "nenhuma (fica como não verificada)",
+    "verifyNote": "Ao aprovar, você autoriza o INA a rodar estes comandos no worktree de cada agente."
   },
   "integration": {
     "title": "Integração",
@@ -70,7 +74,16 @@
     "removed": "removido",
     "untracked": "não rastreados (fora do merge): {{files}}",
     "forceCleanup": "Forçar remoção",
-    "failed": "falhou, integração parada (merges anteriores mantidos): {{error}}"
+    "failed": "falhou, integração parada (merges anteriores mantidos): {{error}}",
+    "preview": {
+      "title": "Prévia (nada foi alterado):",
+      "clean": "merge limpo",
+      "skipped": "sem commits novos",
+      "conflict": "conflito previsto em {{files}}; a integração pararia aqui",
+      "notReached": "não seria tentado (para no conflito)",
+      "overlap": "{{file}} foi alterado por {{agents}}: revise a combinação",
+      "unavailable": "Prévia indisponível ({{error}}). Você ainda pode integrar."
+    }
   },
   "tasks": {
     "title": "Tarefas",
@@ -85,8 +98,10 @@
       "done": "concluída",
       "failed": "falhou",
       "blocked": "bloqueada",
-      "cancelled": "cancelada"
-    }
+      "cancelled": "cancelada",
+      "verifying": "verificando"
+    },
+    "autoStart": "Iniciar dependentes automaticamente"
   },
   "setup": {
     "checking": "Verificando o Claude Code…",
@@ -96,5 +111,40 @@
     "notLoggedIn": "Sem login: rode claude em um terminal e faça login (ou defina ANTHROPIC_API_KEY).",
     "error": "Não foi possível verificar: {{error}}",
     "recheck": "Verificar de novo"
+  },
+  "messages": {
+    "title": "Mensagens",
+    "none": "Nenhuma mensagem.",
+    "approve": "Aprovar",
+    "reject": "Rejeitar",
+    "reply": "Responder",
+    "send": "Enviar",
+    "to": "Para",
+    "placeholder": "Mensagem para o agente…",
+    "replyingTo": "Resposta a: {{text}}",
+    "who": {
+      "user": "Você",
+      "orchestrator": "Orquestrador"
+    },
+    "kind": {
+      "progress": "progresso",
+      "question": "pergunta",
+      "blocked": "bloqueio",
+      "handoff": "entrega",
+      "instruction": "instrução",
+      "reply": "resposta",
+      "invalid": "inválida"
+    },
+    "status": {
+      "received": "recebida",
+      "proposed": "aguarda aprovação",
+      "delivered": "entregue",
+      "rejected": "rejeitada",
+      "undelivered": "não entregue"
+    },
+    "notify": "Avisar no terminal",
+    "notifyHint": "Digita uma linha fixa no terminal do agente pedindo que leia .ina/inbox/. Use quando ele não estiver mostrando um pedido de permissão.",
+    "notified": "Aviso enviado ao terminal.",
+    "notOpen": "O terminal do agente não está aberto; a mensagem espera no inbox."
   }
 }

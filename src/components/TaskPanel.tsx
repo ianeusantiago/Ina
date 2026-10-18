@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
+import { usePolled } from "../lib/usePolled";
 import { teamTasks, type AgentSpec, type TaskStatus, type TaskView } from "../lib/team";
-
-const POLL_MS = 5000;
 
 const tone: Record<TaskStatus, string> = {
   pending: "text-muted",
   running: "text-sky-300",
+  verifying: "text-sky-300",
   done: "text-emerald-300",
   failed: "text-red-400",
   blocked: "text-amber-300",
@@ -17,30 +17,31 @@ const tone: Record<TaskStatus, string> = {
 /** SQLite `datetime('now')` is UTC without a zone marker. */
 const localTime = (utc: string) => new Date(`${utc.replace(" ", "T")}Z`).toLocaleString();
 
-/** Shared task registry of a team: status comes from the backend (process + result.json). */
-export function TaskPanel({ planId, agents }: { planId: number; agents: AgentSpec[] }) {
+const NONE: TaskView[] = [];
+
+/** Polls the team's task registry (status comes from the backend: process + result.json). */
+export function useTeamTasks(planId: number) {
+  const load = useCallback(() => teamTasks(planId), [planId]);
+  const { data: tasks, error, run } = usePolled(load, NONE);
+  return { tasks, error, refresh: () => run() };
+}
+
+export function TaskPanel({
+  agents,
+  tasks,
+  error,
+  onRefresh,
+  autoStart,
+  onAutoStart,
+}: {
+  agents: AgentSpec[];
+  tasks: TaskView[];
+  error: string | null;
+  onRefresh: () => void;
+  autoStart: boolean;
+  onAutoStart: (on: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const [tasks, setTasks] = useState<TaskView[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setTasks(await teamTasks(planId));
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, [planId]);
-
-  useEffect(() => {
-    const first = setTimeout(() => void refresh(), 0);
-    const timer = setInterval(() => void refresh(), POLL_MS);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [refresh]);
-
   const byId = new Map(agents.map((a) => [a.id, a]));
 
   return (
@@ -49,10 +50,18 @@ export function TaskPanel({ planId, agents }: { planId: number; agents: AgentSpe
         <span className="font-semibold uppercase tracking-wide text-muted">{t("tasks.title")}</span>
         <button
           className="rounded border border-line px-2 py-0.5 hover:bg-line"
-          onClick={() => void refresh()}
+          onClick={onRefresh}
         >
           {t("tasks.refresh")}
         </button>
+        <label className="flex items-center gap-1 text-muted">
+          <input
+            type="checkbox"
+            checked={autoStart}
+            onChange={(e) => onAutoStart(e.target.checked)}
+          />
+          {t("tasks.autoStart")}
+        </label>
       </div>
       {error && (
         <p role="alert" className="break-words text-red-400">

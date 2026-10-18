@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { smallButton } from "./ui";
 import {
   teamCleanup,
+  teamPreview,
+  type IntegrationPreview,
   teamIntegrate,
   teamStatus,
   type AgentBranch,
@@ -16,8 +19,7 @@ type Result =
 
 type Action = "integrate" | "cleanup" | "forceCleanup";
 
-const button =
-  "rounded border border-line px-2 py-0.5 text-xs hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
+const button = smallButton;
 
 /** Branch status, controlled integration and cleanup for an approved team. */
 export function IntegrationBar({ planId }: { planId: number }) {
@@ -26,6 +28,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
   const [confirm, setConfirm] = useState<Action | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<IntegrationPreview | null>(null);
 
   const run = async (action: () => Promise<Result>) => {
     setBusy(true);
@@ -43,6 +46,21 @@ export function IntegrationBar({ planId }: { planId: number }) {
   const status = () => run(async () => ({ kind: "status", rows: await teamStatus(planId) }));
   const integrate = () =>
     run(async () => ({ kind: "integrate", steps: await teamIntegrate(planId) }));
+  // Integration is confirmed against a dry run, so the user sees conflicts before merging.
+  const askIntegrate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setPreview(await teamPreview(planId));
+    } catch (e) {
+      // Without a preview (e.g. git older than 2.38) integration still works; say so.
+      setPreview(null);
+      setError(t("integration.preview.unavailable", { error: String(e) }));
+    } finally {
+      setConfirm("integrate");
+      setBusy(false);
+    }
+  };
   const cleanup = (discardUntracked: boolean) =>
     run(async () => ({ kind: "cleanup", rows: await teamCleanup(planId, discardUntracked) }));
   const confirmed = (action: Action) =>
@@ -60,7 +78,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
         </button>
         {confirm === null ? (
           <>
-            <button className={button} disabled={busy} onClick={() => setConfirm("integrate")}>
+            <button className={button} disabled={busy} onClick={() => void askIntegrate()}>
               {t("integration.integrate")}
             </button>
             <button className={button} disabled={busy} onClick={() => setConfirm("cleanup")}>
@@ -89,6 +107,26 @@ export function IntegrationBar({ planId }: { planId: number }) {
         )}
         {busy && <span className="text-muted">…</span>}
       </div>
+      {confirm === "integrate" && preview && (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("integration.preview.title")}</span>
+          <ul>
+            {preview.steps.map((s) => (
+              <li key={s.agentId} className={s.kind === "conflict" ? "text-red-400" : undefined}>
+                <span className="text-zinc-100">{s.agentId}</span>{" "}
+                {s.kind === "conflict"
+                  ? t("integration.preview.conflict", { files: s.files.join(", ") })
+                  : t(`integration.preview.${s.kind}`)}
+              </li>
+            ))}
+          </ul>
+          {preview.overlaps.map((o) => (
+            <p key={o.file} className="text-amber-300">
+              {t("integration.preview.overlap", { file: o.file, agents: o.agents.join(", ") })}
+            </p>
+          ))}
+        </div>
+      )}
       {error && (
         <p role="alert" className="break-words text-red-400">
           {error}
