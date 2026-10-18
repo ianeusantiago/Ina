@@ -62,5 +62,21 @@
     "removed": "removed",
     "untracked": "untracked (not merged): {{files}}",
     "forceCleanup": "Force removal"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "refresh": "Refresh",
+    "none": "No tasks registered.",
+    "invalidResult": "invalid result.json: {{error}}",
+    "criteria_one": "{{count}} acceptance criterion",
+    "criteria_other": "{{count}} acceptance criteria",
+    "status": {
+      "pending": "pending",
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "blocked": "blocked",
+      "cancelled": "cancelled"
+    }
   }
 }

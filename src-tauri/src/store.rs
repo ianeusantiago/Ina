@@ -47,6 +47,23 @@ const MIGRATIONS: &[&str] = &[
         closed INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );",
+    // Shared task registry: one row per agent of an approved team, plus its history.
+    "CREATE TABLE tasks (
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (team_id, agent_id)
+    );
+    CREATE TABLE task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT,
+        at TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
 ];
 
 pub struct Store {
@@ -244,6 +261,95 @@ impl Store {
     }
 }
 
+/// A task registry row; `status` strings are owned by `tasks::TaskStatus`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskRow {
+    pub agent_id: String,
+    pub status: String,
+    pub summary: Option<String>,
+    pub updated_at: String,
+}
+
+impl Store {
+    /// Register every agent of a team as `status`, in one transaction.
+    pub fn insert_tasks(&self, team: i64, agents: &[&str], status: &str) -> Result<(), StoreError> {
+        let conn = self.conn()?;
+        let tx = conn.unchecked_transaction()?;
+        for a in agents {
+            tx.execute(
+                "INSERT INTO tasks (team_id, agent_id, status) VALUES (?1, ?2, ?3)",
+                params![team, a, status],
+            )?;
+            tx.execute(
+                "INSERT INTO task_events (team_id, agent_id, status) VALUES (?1, ?2, ?3)",
+                params![team, a, status],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn tasks(&self, team: i64) -> Result<Vec<TaskRow>, StoreError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT agent_id, status, summary, updated_at FROM tasks WHERE team_id = ?1              ORDER BY rowid",
+        )?;
+        let rows = stmt.query_map([team], |r| {
+            Ok(TaskRow {
+                agent_id: r.get(0)?,
+                status: r.get(1)?,
+                summary: r.get(2)?,
+                updated_at: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Change a task's status only if it is still `from`, recording the change in its history.
+    /// Returns false (and changes nothing) when the status moved on meanwhile.
+    pub fn update_task(
+        &self,
+        team: i64,
+        agent: &str,
+        from: &str,
+        to: &str,
+        summary: Option<&str>,
+        detail: Option<&str>,
+    ) -> Result<bool, StoreError> {
+        let conn = self.conn()?;
+        let tx = conn.unchecked_transaction()?;
+        let n = tx.execute(
+            "UPDATE tasks SET status = ?4, summary = COALESCE(?5, summary),              updated_at = datetime('now') WHERE team_id = ?1 AND agent_id = ?2 AND status = ?3",
+            params![team, agent, from, to, summary],
+        )?;
+        if n == 0 {
+            return Ok(false);
+        }
+        tx.execute(
+            "INSERT INTO task_events (team_id, agent_id, status, detail) VALUES (?1, ?2, ?3, ?4)",
+            params![team, agent, to, detail],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Status history of one agent, oldest first: (status, detail, at).
+    pub fn task_history(
+        &self,
+        team: i64,
+        agent: &str,
+    ) -> Result<Vec<(String, Option<String>, String)>, StoreError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT status, detail, at FROM task_events WHERE team_id = ?1 AND agent_id = ?2              ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![team, agent], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}
+
 impl Workspace {
     pub fn root(&self) -> PathBuf {
         PathBuf::from(&self.path)
@@ -346,5 +452,40 @@ mod tests {
             s.get_team(open[0].id),
             Err(StoreError::TeamNotFound(_))
         ));
+    }
+
+    #[test]
+    fn task_updates_are_conditional_and_logged() {
+        let s = Store::in_memory().unwrap();
+        let w = s.add_workspace(&tempdir("tasks")).unwrap();
+        let t = s.insert_team(w.id, "{}").unwrap();
+        s.insert_tasks(t, &["a", "b"], "pending").unwrap();
+        assert!(
+            s.update_task(t, "a", "pending", "running", None, None)
+                .unwrap()
+        );
+        // Stale `from`: nothing changes.
+        assert!(
+            !s.update_task(t, "a", "pending", "done", None, None)
+                .unwrap()
+        );
+        assert!(
+            s.update_task(t, "a", "running", "done", Some("ok"), Some("result.json"))
+                .unwrap()
+        );
+        let rows = s.tasks(t).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.agent_id.as_str(), r.status.as_str(), r.summary.as_deref()))
+                .collect::<Vec<_>>(),
+            [("a", "done", Some("ok")), ("b", "pending", None)]
+        );
+        let h: Vec<String> = s
+            .task_history(t, "a")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.0)
+            .collect();
+        assert_eq!(h, ["pending", "running", "done"]);
     }
 }

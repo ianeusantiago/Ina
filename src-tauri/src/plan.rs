@@ -210,7 +210,7 @@ pub fn orchestrator_prompt(plan: &Plan, worktrees: &HashMap<String, Worktree>) -
          worktree; their changes do not appear in your checkout until integrated. Monitor the \
          branches read-only (e.g. `git log HEAD..<branch>`, `git diff HEAD...<branch>`), \
          validate results against the acceptance criteria, and report honestly whether the team \
-         is ready to integrate. Never merge, rebase, reset or commit yourself: the user \
+         is ready to integrate. Each agent reports in `<worktree>/.ina/result.json` and every \n         status change is appended to `.ina/events.jsonl` in this directory. Never merge, rebase, reset or commit yourself: the user \
          integrates through INA after reviewing. Do not do the agents' work yourself.",
         plan.mode,
         plan.summary,
@@ -224,7 +224,7 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
         "You are agent \"{}\" ({}) in an INA team. Overall goal: {}\n\nYour scope: {}\n\
          Your task: {}\n\nAcceptance criteria:\n{}\n\nDepends on: {}. You work in your own git \
          worktree on branch `{}`; commit your work there and do not touch other branches. Stay \
-         within your scope and report clearly when done or blocked.",
+         within your scope. Your assignment is also in `.ina/task.json`. When you finish, fail or \n         are blocked, write `.ina/result.json` as JSON: {{\"status\": \"done\" | \"failed\" | \n         \"blocked\", \"summary\": \"...\", \"files\": [\"changed paths\"], \"notes\": \"optional\"}}. \n         INA reads it to track your status; never report done unless the criteria are met.",
         agent.name,
         agent.role,
         plan.summary,
@@ -400,7 +400,8 @@ fn decode(row: TeamRow) -> Result<Decoded, PlanError> {
 /// rebuilt from here, never taken from the frontend), plus the live sessions of each team.
 #[derive(Default)]
 pub struct PlanStore {
-    sessions: Mutex<HashMap<u64, Vec<String>>>,
+    /// team -> (session id, agent id)
+    sessions: Mutex<HashMap<u64, Vec<(String, String)>>>,
 }
 
 impl PlanStore {
@@ -466,15 +467,44 @@ impl PlanStore {
         db.close_team(to_id(id)?).map_err(db_err)
     }
 
-    pub fn add_session(&self, team: u64, session: &str) {
+    pub fn add_session(&self, team: u64, session: &str, agent: &str) {
         let mut g = self.sessions.lock().expect("session map poisoned");
-        g.entry(team).or_default().push(session.to_owned());
+        g.entry(team)
+            .or_default()
+            .push((session.to_owned(), agent.to_owned()));
     }
 
     /// Take (and forget) the sessions spawned for a team.
     pub fn take_sessions(&self, team: u64) -> Vec<String> {
         let mut g = self.sessions.lock().expect("session map poisoned");
-        g.remove(&team).unwrap_or_default()
+        g.remove(&team)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect()
+    }
+
+    /// Team and agent a session was spawned for.
+    pub fn session_agent(&self, session: &str) -> Option<(u64, String)> {
+        let g = self.sessions.lock().expect("session map poisoned");
+        g.iter().find_map(|(team, list)| {
+            list.iter()
+                .find(|(s, _)| s == session)
+                .map(|(_, a)| (*team, a.clone()))
+        })
+    }
+
+    /// Sessions spawned for one agent of a team.
+    pub fn agent_sessions(&self, team: u64, agent: &str) -> Vec<String> {
+        let g = self.sessions.lock().expect("session map poisoned");
+        g.get(&team)
+            .map(|l| {
+                l.iter()
+                    .filter(|(_, a)| a == agent)
+                    .map(|(s, _)| s.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -587,7 +617,9 @@ mod tests {
         ));
         assert_eq!(store.open_teams(&db, ws.id).unwrap().len(), 1);
 
-        store.add_session(id, "s-1");
+        store.add_session(id, "s-1", "api");
+        assert_eq!(store.session_agent("s-1"), Some((id, "api".into())));
+        assert_eq!(store.agent_sessions(id, "api"), ["s-1"]);
         assert_eq!(store.take_sessions(id), ["s-1"]);
         assert!(store.take_sessions(id).is_empty());
 

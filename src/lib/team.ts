@@ -57,4 +57,16 @@ export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
   invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
+export type TaskStatus = "pending" | "running" | "done" | "failed" | "blocked" | "cancelled";
+
+export interface TaskView {
+  agentId: string;
+  status: TaskStatus;
+  summary: string | null;
+  detail: string | null;
+  updatedAt: string;
+  resultError: string | null;
+}
+
+export const teamTasks = (planId: number) => invoke<TaskView[]>("team_tasks", { planId });
 export const listTeams = (workspaceId: number) => invoke<PlanDraft[]>("team_list", { workspaceId });

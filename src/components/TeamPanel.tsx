@@ -10,6 +10,7 @@ import {
   type PlanDraft,
 } from "../lib/team";
 import { IntegrationBar } from "./IntegrationBar";
+import { TaskPanel } from "./TaskPanel";
 import { TerminalPane } from "./TerminalPane";
 
 type Stage =
@@ -114,6 +115,7 @@ export function TeamPanel({
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
         <IntegrationBar planId={id} />
+        <TaskPanel planId={id} agents={p.agents} />
         <div
           className="grid min-h-0 flex-1 gap-2"
           style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}

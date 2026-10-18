@@ -62,5 +62,21 @@
     "removed": "removido",
     "untracked": "não rastreados (fora do merge): {{files}}",
     "forceCleanup": "Forçar remoção"
+  },
+  "tasks": {
+    "title": "Tarefas",
+    "refresh": "Atualizar",
+    "none": "Nenhuma tarefa registrada.",
+    "invalidResult": "result.json inválido: {{error}}",
+    "criteria_one": "{{count}} critério de aceite",
+    "criteria_other": "{{count}} critérios de aceite",
+    "status": {
+      "pending": "pendente",
+      "running": "em execução",
+      "done": "concluída",
+      "failed": "falhou",
+      "blocked": "bloqueada",
+      "cancelled": "cancelada"
+    }
   }
 }
