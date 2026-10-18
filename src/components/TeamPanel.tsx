@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ghostButton } from "./ui";
+import { ghostButton, field } from "./ui";
+import { usePersistedState } from "../lib/usePersistedState";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   type TaskStatus,
@@ -26,26 +27,17 @@ type Stage =
 
 const AUTO_START_KEY = "ina.autoStart";
 
-function savedAutoStart(): boolean {
-  try {
-    return localStorage.getItem(AUTO_START_KEY) !== "off";
-  } catch {
-    return true;
-  }
-}
+/** Missing or anything but "off" means on. */
+const parseAutoStart = (v: string | null) => v !== "off";
 
 const SPLIT_KEY = "ina.teamSplit";
 const SPLIT_MIN = 10;
 const SPLIT_MAX = 70;
 
 /** Height of the task/message area, in % of the team view. */
-function savedSplit(): number {
-  try {
-    const v = Number(localStorage.getItem(SPLIT_KEY));
-    return v >= SPLIT_MIN && v <= SPLIT_MAX ? v : 40;
-  } catch {
-    return 40;
-  }
+function parseSplit(v: string | null): number {
+  const n = Number(v);
+  return v !== null && n >= SPLIT_MIN && n <= SPLIT_MAX ? n : 40;
 }
 
 /** Drag handle that resizes the area above it as a % of `container`'s height. */
@@ -168,25 +160,11 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   const { id, plan: p } = draft;
   const { tasks, error, refresh } = useTeamTasks(id);
   const [maxId, setMaxId] = useState<string | null>(null);
-  const [autoStart, setAutoStart] = useState(savedAutoStart);
-  const changeAutoStart = (on: boolean) => {
-    setAutoStart(on);
-    try {
-      localStorage.setItem(AUTO_START_KEY, on ? "on" : "off");
-    } catch {
-      // Not persisted; applies to this session.
-    }
-  };
+  const [autoStart, changeAutoStart] = usePersistedState(AUTO_START_KEY, parseAutoStart, (on) =>
+    on ? "on" : "off",
+  );
   const view = useRef<HTMLDivElement>(null);
-  const [split, setSplit] = useState(savedSplit);
-  const changeSplit = (pct: number) => {
-    setSplit(pct);
-    try {
-      localStorage.setItem(SPLIT_KEY, String(pct));
-    } catch {
-      // Not persisted; applies to this session.
-    }
-  };
+  const [split, changeSplit] = usePersistedState(SPLIT_KEY, parseSplit);
   const status = new Map(tasks.map((x) => [x.agentId, x.status]));
   const count = p.agents.length + 1;
   const cols = maxId !== null ? 1 : count <= 2 ? count : count <= 4 ? 2 : 3;
@@ -347,7 +325,7 @@ export function TeamPanel({
         <label className="flex flex-col gap-1 text-xs text-muted">
           {t("team.requestLabel")}
           <textarea
-            className="min-h-28 resize-y rounded border border-line bg-transparent p-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className={`min-h-28 resize-y p-2 text-sm ${field}`}
             value={request}
             placeholder={t("team.requestPlaceholder")}
             disabled={stage.kind === "planning"}

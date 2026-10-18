@@ -3,7 +3,6 @@
 //! before any agent session is spawned.
 
 use std::collections::{HashMap, HashSet};
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -419,16 +418,7 @@ pub fn parse_planner_output(stdout: &str) -> Result<Plan, PlanError> {
 /// Run the planner to completion (blocking) with a timeout. `program` comes from the policy.
 pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
     let fail = |m: String| PlanError::Planner(m);
-    let mut command = Command::new(&spec.program);
-    for k in &spec.env_remove {
-        command.env_remove(k);
-    }
-    let mut child = command
-        .args(&spec.args)
-        .current_dir(&spec.cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    let mut child = crate::pty::piped_command(spec)
         .spawn()
         .map_err(|e| fail(format!("spawn: {e}")))?;
     let (status, output) =
@@ -437,14 +427,7 @@ pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if !status.success() && stdout.trim().is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr
-            .chars()
-            .rev()
-            .take(500)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
+        let tail = crate::pty::tail(&stderr, 500);
         return Err(fail(format!("exit {:?}: {tail}", status.code())));
     }
     parse_planner_output(&stdout)

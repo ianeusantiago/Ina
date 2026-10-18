@@ -10,7 +10,7 @@ import {
   type MessageView,
 } from "../lib/team";
 import { usePolled } from "../lib/usePolled";
-import { smallButton as button } from "./ui";
+import { smallButton as button, panel, panelTitle, errorText, field } from "./ui";
 
 const SHOWN = 30;
 const NONE: MessageView[] = [];
@@ -51,12 +51,10 @@ export function MessagePanel({ planId, agents }: { planId: number; agents: Agent
   const name = (id: string) => agents.find((a) => a.id === id)?.name ?? t(`messages.who.${id}`, id);
 
   return (
-    <section className="flex min-h-0 flex-col gap-1 rounded border border-line bg-panel px-3 py-2 text-xs">
-      <span className="font-semibold uppercase tracking-wide text-muted">
-        {t("messages.title")}
-      </span>
+    <section className={`min-h-0 ${panel}`}>
+      <span className={panelTitle}>{t("messages.title")}</span>
       {error && (
-        <p role="alert" className="break-words text-red-400">
+        <p role="alert" className={errorText}>
           {error}
         </p>
       )}
@@ -121,7 +119,7 @@ export function MessagePanel({ planId, agents }: { planId: number; agents: Agent
           ))}
         </select>
         <input
-          className="min-w-0 flex-1 rounded border border-line bg-transparent px-2 py-0.5 text-zinc-100 outline-none focus:border-zinc-500"
+          className={`min-w-0 flex-1 px-2 py-0.5 ${field}`}
           placeholder={
             replyTo
               ? t("messages.replyingTo", { text: replyTo.text.slice(0, 40) })

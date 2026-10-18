@@ -208,11 +208,10 @@ fn git_for(store: &Store, workspace_id: i64) -> Result<worktree::Git, String> {
 }
 
 /// Approved team plus its git runner, with agents in dependency order.
-fn team_git(
-    store: &Store,
-    plans: &PlanStore,
-    plan_id: u64,
-) -> Result<(worktree::Git, Vec<(String, worktree::Worktree)>), String> {
+/// A team's git runner, its worktrees in dependency order, and the team itself.
+type TeamGit = (worktree::Git, Vec<(String, worktree::Worktree)>, plan::Team);
+
+fn team_git(store: &Store, plans: &PlanStore, plan_id: u64) -> Result<TeamGit, String> {
     let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
     let git = git_for(store, team.workspace_id)?;
     let ordered = team
@@ -221,7 +220,7 @@ fn team_git(
         .into_iter()
         .filter_map(|a| team.worktrees.get(&a.id).map(|w| (a.id.clone(), w.clone())))
         .collect();
-    Ok((git, ordered))
+    Ok((git, ordered, team))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -245,7 +244,7 @@ async fn team_status(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<Vec<AgentBranch>, String> {
-    let (git, team) = team_git(&store, &plans, plan_id)?;
+    let (git, team, _) = team_git(&store, &plans, plan_id)?;
     blocking(move || {
         team.into_iter()
             .map(|(agent_id, wt)| {
@@ -296,8 +295,7 @@ async fn team_preview(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<IntegrationPreview, String> {
-    let (git, team) = team_git(&store, &plans, plan_id)?;
-    let approved = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    let (git, team, approved) = team_git(&store, &plans, plan_id)?;
     blocking(move || {
         let mut ahead = Vec::new();
         let mut by_file: std::collections::BTreeMap<String, Vec<String>> = Default::default();
@@ -372,7 +370,7 @@ async fn team_integrate(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<Vec<IntegrateStep>, String> {
-    let (git, team) = team_git(&store, &plans, plan_id)?;
+    let (git, team, _) = team_git(&store, &plans, plan_id)?;
     // Teams approved before the registry existed have no rows: they are not gated.
     let task_statuses: std::collections::HashMap<String, String> = store
         .tasks(to_team(plan_id)?)
@@ -444,7 +442,7 @@ async fn team_cleanup(
     plan_id: u64,
     discard_untracked: bool,
 ) -> Result<Vec<CleanupResult>, String> {
-    let (git, team) = team_git(&store, &plans, plan_id)?;
+    let (git, team, _) = team_git(&store, &plans, plan_id)?;
     let sessions = plans.take_sessions(plan_id);
     for id in &sessions {
         if pty.is_running(id)

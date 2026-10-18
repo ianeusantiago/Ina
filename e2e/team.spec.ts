@@ -46,6 +46,8 @@ test("resizes the task area by dragging and with the keyboard", async ({ app }) 
   await app.getByRole("button", { name: "Resume" }).first().click();
   const handle = app.getByRole("separator", { name: /Resize panels/ });
   const area = handle.locator("xpath=preceding-sibling::div[1]");
+  await handle.focus();
+  for (let i = 0; i < 15; i++) await app.keyboard.press("ArrowUp"); // start at the minimum
   const before = (await box(area)).height;
   const h = await box(handle);
   await app.mouse.move(h.x + h.width / 2, h.y + 2);

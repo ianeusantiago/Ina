@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { panel, panelTitle, errorText } from "./ui";
 
 import { usePolled } from "../lib/usePolled";
 import { teamTasks, type AgentSpec, type TaskStatus, type TaskView } from "../lib/team";
@@ -45,9 +46,9 @@ export function TaskPanel({
   const byId = new Map(agents.map((a) => [a.id, a]));
 
   return (
-    <section className="flex flex-col gap-1 rounded border border-line bg-panel px-3 py-2 text-xs">
+    <section className={panel}>
       <div className="flex items-center gap-2">
-        <span className="font-semibold uppercase tracking-wide text-muted">{t("tasks.title")}</span>
+        <span className={panelTitle}>{t("tasks.title")}</span>
         <button
           className="rounded border border-line px-2 py-0.5 hover:bg-line"
           onClick={onRefresh}
@@ -64,7 +65,7 @@ export function TaskPanel({
         </label>
       </div>
       {error && (
-        <p role="alert" className="break-words text-red-400">
+        <p role="alert" className={errorText}>
           {error}
         </p>
       )}

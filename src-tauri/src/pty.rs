@@ -80,6 +80,27 @@ pub struct Output {
 
 /// Wait for a piped `child` up to `limit` (killing it on timeout) and collect its output.
 /// Returns `None` as the status on timeout.
+/// A non-interactive command for `spec`: its env scrub, args and cwd; no stdin, output piped.
+pub fn piped_command(spec: &SpawnSpec) -> std::process::Command {
+    let mut cmd = std::process::Command::new(&spec.program);
+    for k in &spec.env_remove {
+        cmd.env_remove(k);
+    }
+    cmd.args(&spec.args)
+        .current_dir(&spec.cwd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    cmd
+}
+
+/// The last `max` characters of `s`, trimmed (char-safe).
+pub fn tail(s: &str, max: usize) -> String {
+    let s = s.trim();
+    let start = s.char_indices().rev().nth(max).map_or(0, |(i, _)| i);
+    s[start..].to_owned()
+}
+
 pub fn wait_output(
     child: &mut std::process::Child,
     limit: std::time::Duration,
