@@ -478,6 +478,8 @@ fn decode(row: TeamRow) -> Result<Decoded, PlanError> {
 pub struct PlanStore {
     /// team -> (session id, agent id)
     sessions: Mutex<HashMap<u64, Vec<(String, String)>>>,
+    /// Decoded approved teams; a team's row never changes after approval until it is closed.
+    approved: Mutex<HashMap<u64, Team>>,
 }
 
 impl PlanStore {
@@ -508,17 +510,24 @@ impl PlanStore {
     }
 
     pub fn approved(&self, db: &Store, id: u64) -> Result<Team, PlanError> {
+        if let Some(team) = self.approved.lock().ok().and_then(|c| c.get(&id).cloned()) {
+            return Ok(team);
+        }
         let row = db.get_team(to_id(id)?).map_err(db_err)?;
         if row.closed {
             return Err(PlanError::Closed);
         }
         let (workspace_id, plan, worktrees) = decode(row)?;
-        Ok(Team {
+        let team = Team {
             id,
             workspace_id,
             plan,
             worktrees: worktrees.ok_or(PlanError::NotApproved)?,
-        })
+        };
+        if let Ok(mut cache) = self.approved.lock() {
+            cache.insert(id, team.clone());
+        }
+        Ok(team)
     }
 
     /// Approved, open teams of a workspace (newest first).
@@ -540,6 +549,9 @@ impl PlanStore {
     }
 
     pub fn close(&self, db: &Store, id: u64) -> Result<(), PlanError> {
+        if let Ok(mut cache) = self.approved.lock() {
+            cache.remove(&id);
+        }
         db.close_team(to_id(id)?).map_err(db_err)
     }
 
@@ -725,6 +737,11 @@ mod tests {
             Err(PlanError::NotFound)
         ));
         assert_eq!(store.open_teams(&db, ws.id).unwrap().len(), 1);
+        store.close(&db, id).unwrap();
+        assert!(
+            matches!(store.approved(&db, id), Err(PlanError::Closed)),
+            "closing drops the cached team"
+        );
 
         store.add_session(id, "s-1", "api");
         assert_eq!(store.agent_sessions(id, "api"), ["s-1"]);
