@@ -262,6 +262,25 @@ impl Store {
         }
     }
 
+    /// The newest unapproved plan of a workspace, if made in the last 30 minutes and after its
+    /// newest approved team (older drafts were abandoned by planning again or approving).
+    pub fn latest_draft(&self, workspace_id: i64) -> Result<Option<TeamRow>, StoreError> {
+        Ok(self
+            .conn()?
+            .query_row(
+                &format!(
+                    "SELECT {TEAM_COLS} FROM teams WHERE workspace_id = ?1 AND worktrees IS NULL \
+                     AND closed = 0 AND created_at >= datetime('now', '-30 minutes') \
+                     AND id > (SELECT COALESCE(MAX(id), 0) FROM teams \
+                               WHERE workspace_id = ?1 AND worktrees IS NOT NULL) \
+                     ORDER BY id DESC LIMIT 1"
+                ),
+                [workspace_id],
+                team_row,
+            )
+            .optional()?)
+    }
+
     /// Approved, not yet closed teams of a workspace, newest first.
     pub fn open_teams(&self, workspace_id: i64) -> Result<Vec<TeamRow>, StoreError> {
         let conn = self.conn()?;
@@ -282,6 +301,20 @@ pub struct TaskRow {
     /// Detail of the latest history entry.
     pub detail: Option<String>,
     pub updated_at: String,
+}
+
+/// Task columns plus the latest history entry's detail.
+const TASK_SELECT: &str = "SELECT agent_id, status, summary, updated_at, (SELECT detail FROM task_events e \
+     WHERE e.team_id = t.team_id AND e.agent_id = t.agent_id ORDER BY e.id DESC LIMIT 1) FROM tasks t";
+
+fn task_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRow> {
+    Ok(TaskRow {
+        agent_id: r.get(0)?,
+        status: r.get(1)?,
+        summary: r.get(2)?,
+        updated_at: r.get(3)?,
+        detail: r.get(4)?,
+    })
 }
 
 impl Store {
@@ -305,25 +338,20 @@ impl Store {
 
     pub fn tasks(&self, team: i64) -> Result<Vec<TaskRow>, StoreError> {
         let conn = self.conn()?;
-        let mut stmt = conn.prepare(
-            "SELECT agent_id, status, summary, updated_at, (SELECT detail FROM task_events e \
-             WHERE e.team_id = t.team_id AND e.agent_id = t.agent_id ORDER BY e.id DESC LIMIT 1) \
-             FROM tasks t WHERE team_id = ?1              ORDER BY rowid",
-        )?;
-        let rows = stmt.query_map([team], |r| {
-            Ok(TaskRow {
-                agent_id: r.get(0)?,
-                status: r.get(1)?,
-                summary: r.get(2)?,
-                updated_at: r.get(3)?,
-                detail: r.get(4)?,
-            })
-        })?;
+        let mut stmt = conn.prepare(&format!("{TASK_SELECT} WHERE team_id = ?1 ORDER BY rowid"))?;
+        let rows = stmt.query_map([team], task_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn task(&self, team: i64, agent: &str) -> Result<Option<TaskRow>, StoreError> {
-        Ok(self.tasks(team)?.into_iter().find(|t| t.agent_id == agent))
+        Ok(self
+            .conn()?
+            .query_row(
+                &format!("{TASK_SELECT} WHERE team_id = ?1 AND agent_id = ?2"),
+                params![team, agent],
+                task_row,
+            )
+            .optional()?)
     }
 
     pub fn task_status(&self, team: i64, agent: &str) -> Result<Option<String>, StoreError> {
@@ -518,6 +546,30 @@ mod tests {
         Store::open(&db).unwrap().add_workspace(&ws).unwrap();
         let s = Store::open(&db).unwrap();
         assert_eq!(s.list_workspaces().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn latest_draft_is_newest_unapproved_after_approvals() {
+        let dir = tempdir("drafts");
+        let s = Store::open(&dir.join("ina.db")).unwrap();
+        let ws = s.add_workspace(&dir).unwrap();
+        assert!(s.latest_draft(ws.id).unwrap().is_none());
+        let old = s.insert_team(ws.id, "{old}").unwrap();
+        let new = s.insert_team(ws.id, "{new}").unwrap();
+        assert_eq!(s.latest_draft(ws.id).unwrap().unwrap().id, new);
+        s.approve_team(old, "{wt}").unwrap();
+        assert_eq!(s.latest_draft(ws.id).unwrap().unwrap().id, new);
+        s.approve_team(new, "{wt}").unwrap();
+        assert!(s.latest_draft(ws.id).unwrap().is_none(), "approved");
+        let stale = s.insert_team(ws.id, "{stale}").unwrap();
+        s.conn()
+            .unwrap()
+            .execute(
+                "UPDATE teams SET created_at = datetime('now', '-31 minutes') WHERE id = ?1",
+                [stale],
+            )
+            .unwrap();
+        assert!(s.latest_draft(ws.id).unwrap().is_none(), "too old");
     }
 
     #[test]

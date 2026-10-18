@@ -80,22 +80,6 @@ export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
   invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
-/** Agents that must be done before `id` may start (mirrors `Plan::prerequisites`). */
-export function prerequisites(plan: Plan, id: string): string[] {
-  if (plan.mode === "parallel") {
-    return plan.agents.find((a) => a.id === id)?.dependsOn ?? [];
-  }
-  const done = new Set<string>();
-  const order: string[] = [];
-  while (order.length < plan.agents.length) {
-    const next = plan.agents.find((a) => !done.has(a.id) && a.dependsOn.every((d) => done.has(d)));
-    if (!next) break;
-    done.add(next.id);
-    order.push(next.id);
-  }
-  const i = order.indexOf(id);
-  return i < 0 ? [] : order.slice(0, i);
-}
 
 export interface ClaudeSetup {
   installed: boolean;
@@ -117,6 +101,8 @@ export interface TaskView {
   detail: string | null;
   updatedAt: string;
   resultError: string | null;
+  /** Agents that must be done before this one may start. */
+  prerequisites: string[];
 }
 
 export const teamTasks = (planId: number) => invoke<TaskView[]>("team_tasks", { planId });
@@ -139,4 +125,6 @@ export const notifyAgent = (planId: number, agentId: string) =>
 export const decideMessage = (planId: number, messageId: number, approve: boolean) =>
   invoke<MessageView[]>("message_decide", { planId, messageId, approve });
 
+export const planDraft = (workspaceId: number) =>
+  invoke<PlanDraft | null>("plan_draft", { workspaceId });
 export const listTeams = (workspaceId: number) => invoke<PlanDraft[]>("team_list", { workspaceId });

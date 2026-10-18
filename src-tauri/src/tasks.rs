@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{AgentSpec, Plan};
-use crate::store::{Store, StoreError};
+use crate::store::{Store, StoreError, TaskRow};
 
 pub const INA_DIR: &str = ".ina";
 pub const TASK_FILE: &str = "task.json";
@@ -282,6 +282,18 @@ pub struct Task {
     pub updated_at: String,
 }
 
+impl Task {
+    fn from_row(r: TaskRow) -> Result<Self, TaskError> {
+        Ok(Task {
+            status: TaskStatus::parse(&r.status)?,
+            agent_id: r.agent_id,
+            summary: r.summary,
+            detail: r.detail,
+            updated_at: r.updated_at,
+        })
+    }
+}
+
 /// The registry for one workspace: store rows plus the event log in its root.
 pub struct Registry<'a> {
     pub store: &'a Store,
@@ -308,21 +320,16 @@ impl Registry<'_> {
         self.store
             .tasks(self.team)?
             .into_iter()
-            .map(|r| {
-                Ok(Task {
-                    status: TaskStatus::parse(&r.status)?,
-                    agent_id: r.agent_id,
-                    summary: r.summary,
-                    detail: r.detail,
-                    updated_at: r.updated_at,
-                })
-            })
+            .map(Task::from_row)
             .collect()
     }
 
     /// `agent`'s task, if it has one.
     pub fn task(&self, agent: &str) -> Result<Option<Task>, TaskError> {
-        Ok(self.tasks()?.into_iter().find(|t| t.agent_id == agent))
+        self.store
+            .task(self.team, agent)?
+            .map(Task::from_row)
+            .transpose()
     }
 
     pub fn status(&self, agent: &str) -> Result<Option<TaskStatus>, TaskError> {

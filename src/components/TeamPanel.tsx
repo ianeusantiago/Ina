@@ -9,8 +9,8 @@ import {
   checkText,
   generatePlan,
   listTeams,
+  planDraft,
   ORCHESTRATOR_ID,
-  prerequisites,
   workspaceTrusted,
   type PlanDraft,
 } from "../lib/team";
@@ -166,6 +166,7 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   const view = useRef<HTMLDivElement>(null);
   const [split, changeSplit] = usePersistedState(SPLIT_KEY, parseSplit);
   const status = new Map(tasks.map((x) => [x.agentId, x.status]));
+  const prerequisites = new Map(tasks.map((x) => [x.agentId, x.prerequisites]));
   const count = p.agents.length + 1;
   const cols = maxId !== null ? 1 : count <= 2 ? count : count <= 4 ? 2 : 3;
   // Hidden, not unmounted: a maximized pane must not kill the other sessions.
@@ -210,7 +211,7 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
             />
           </div>
           {p.agents.map((a) => {
-            const prereqs = prerequisites(p, a.id);
+            const prereqs = prerequisites.get(a.id) ?? [];
             const waitingFor = prereqs.filter((d) => status.get(d) !== "done");
             const autoOpen =
               autoStart &&
@@ -259,6 +260,10 @@ export function TeamPanel({
   useEffect(() => {
     listTeams(workspaceId)
       .then(setOpenTeams)
+      .catch((e: unknown) => setError(String(e)));
+    // A plan generated before the window reloaded is shown again for review.
+    planDraft(workspaceId)
+      .then((d) => d && setStage((s) => (s.kind === "request" ? { kind: "review", draft: d } : s)))
       .catch((e: unknown) => setError(String(e)));
   }, [workspaceId]);
   const shell = useMemo<Spawner>(

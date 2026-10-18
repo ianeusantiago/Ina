@@ -2,6 +2,12 @@
 
 **Fase atual:** 3 (arquitetura) concluída em 2026-10-18, branch `ianeusantiago/fase3-arquitetura` (PR #4), aguardando revisão/merge. Fase 2 integrada ao `main` (PR #3).
 
+## Fase 4 — pendências (pausada; branch `worktree-fase4-pendencias`)
+- Feito (verificado: Rust 51 + clippy, tsc/eslint/prettier, Vitest 2): tarefa `running` sem sessão finalizada pelo tick (2 ticks seguidos); evento `team-changed` leva as tarefas (sem sync repetido); `prerequisites` vem do backend (cópia TS removida); `Registry::task` lê 1 linha; travas por worktree sem uso são descartadas.
+- Restauração de rascunho: plano não aprovado (< 30 min, mais novo que a última equipe aprovada) volta à revisão após reload (`plan_draft`). Rust 52.
+- Não verificado: E2E/app real após as mudanças.
+- Próximo: rodar E2E (`npx playwright test`, real com `INA_E2E_WORKSPACE=ws-todo`), code-review, PR.
+
 ## Fase 3 — feito (verificado)
 - Tick no backend (5 s) avança equipes sem UI (provado: mensagem no outbox ingerida com painel fechado); recuperação fora do startup.
 - `Registry::tasks/task` tipados.
@@ -19,10 +25,7 @@ Testes: Rust 50 (+6 ignorados reais), clippy -D warnings, tsc/eslint/prettier, V
 
 ## Pendências conhecidas
 - Orquestrador: deny list é guarda, não sandbox (SECURITY.md).
-- Cópia TS de `prerequisites` espelha a Rust (poderia vir do backend).
-- E2E do fluxo real falhou 1x (plano gravado no banco, UI não recebeu resposta; não reproduziu em 3 execuções seguintes).
-- `team_tasks` não finaliza mais tarefas `running` sem sessão (só a recuperação no startup cobre corrida rara de 2 sessões saindo juntas).
-- Pequenos (do code-review da Fase 3): `Registry::task` lê todas as linhas; evento faz a UI repetir o sync; mapa de travas por worktree nunca é limpo.
+- E2E do fluxo real falhou 1x (plano gravado no banco, UI não recebeu resposta; não reproduziu em 3 execuções seguintes). Backend grava e retorna em sequência; hipótese: WebView recarregou (recompilação do `tauri dev`) durante o planejamento ou planner > 5 min. Mitigado na Fase 4 (restauração de rascunho); confirmar no E2E.
 
 ## Bloqueios
 - RAM 7,3 GB: Claude Code mata `tauri dev` em background; fechar apps pesados ao testar.

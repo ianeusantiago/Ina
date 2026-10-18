@@ -2,7 +2,20 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — Phase 3 (architecture)
+## [Unreleased] — Phase 4 (known issues)
+
+### Fixed
+- A task left `running` with no live session (two sessions of an agent exiting together) is finished by the tick after two ticks in a row, not only at startup.
+
+### Added
+- A generated but unapproved plan is shown again for review after the window reloads.
+
+### Changed
+- `team-changed` carries the synced tasks; the task panel uses them instead of syncing again.
+- Agent prerequisites come from the backend (`TaskView.prerequisites`); the TypeScript copy was removed.
+- `Registry::task` reads a single row; unused per-worktree locks are dropped.
+
+## Phase 3 (architecture)
 
 ### Changed
 - A background tick (every 5 s) applies results, starts verifications and ingests outboxes for every open team, so work moves on even with no team panel open; startup recovery moved off the window-opening path.
