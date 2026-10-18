@@ -271,6 +271,17 @@ fn append_event(root: &Path, e: &Event<'_>) -> Result<(), TaskError> {
     Ok(())
 }
 
+/// One agent's row in the registry, with a typed status.
+#[derive(Debug, Clone)]
+pub struct Task {
+    pub agent_id: String,
+    pub status: TaskStatus,
+    pub summary: Option<String>,
+    /// Detail of the latest history entry.
+    pub detail: Option<String>,
+    pub updated_at: String,
+}
+
 /// The registry for one workspace: store rows plus the event log in its root.
 pub struct Registry<'a> {
     pub store: &'a Store,
@@ -290,6 +301,28 @@ impl Registry<'_> {
             self.log(a, TaskStatus::Pending, None);
         }
         Ok(())
+    }
+
+    /// Every agent's task, in registry order.
+    pub fn tasks(&self) -> Result<Vec<Task>, TaskError> {
+        self.store
+            .tasks(self.team)?
+            .into_iter()
+            .map(|r| {
+                Ok(Task {
+                    status: TaskStatus::parse(&r.status)?,
+                    agent_id: r.agent_id,
+                    summary: r.summary,
+                    detail: r.detail,
+                    updated_at: r.updated_at,
+                })
+            })
+            .collect()
+    }
+
+    /// `agent`'s task, if it has one.
+    pub fn task(&self, agent: &str) -> Result<Option<Task>, TaskError> {
+        Ok(self.tasks()?.into_iter().find(|t| t.agent_id == agent))
     }
 
     pub fn status(&self, agent: &str) -> Result<Option<TaskStatus>, TaskError> {

@@ -19,7 +19,7 @@ const NONE: MessageView[] = [];
 export function MessagePanel({ planId, agents }: { planId: number; agents: AgentSpec[] }) {
   const { t } = useTranslation();
   const load = useCallback(() => teamMessages(planId), [planId]);
-  const { data: messages, error, setError, run } = usePolled(load, NONE);
+  const { data: messages, error, setError, run } = usePolled(load, NONE, planId);
   const [busy, setBusy] = useState(false);
   const [to, setTo] = useState(agents[0]?.id ?? "");
   const [text, setText] = useState("");

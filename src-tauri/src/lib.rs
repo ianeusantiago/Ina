@@ -9,8 +9,9 @@ mod trust;
 mod verify;
 mod worktree;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use plan::{Plan, PlanStore};
 use policy::Program;
@@ -19,7 +20,7 @@ use serde::Serialize;
 use store::{Store, Workspace};
 use tasks::{Registry, TaskStatus};
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -246,12 +247,23 @@ async fn team_status(
 ) -> Result<Vec<AgentBranch>, String> {
     let (git, team, _) = team_git(&store, &plans, plan_id)?;
     blocking(move || {
-        team.into_iter()
-            .map(|(agent_id, wt)| {
-                let status = git.status(&wt).map_err(|e| e.to_string())?;
-                Ok(AgentBranch { agent_id, status })
-            })
-            .collect()
+        // Independent read-only git calls, one worktree each: run them side by side.
+        std::thread::scope(|s| {
+            let handles: Vec<_> = team
+                .into_iter()
+                .map(|(agent_id, wt)| {
+                    let git = &git;
+                    s.spawn(move || {
+                        let status = git.status(&wt).map_err(|e| e.to_string())?;
+                        Ok(AgentBranch { agent_id, status })
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().map_err(|_| "git status panicked".to_string())?)
+                .collect()
+        })
     })
     .await
 }
@@ -370,14 +382,16 @@ async fn team_integrate(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<Vec<IntegrateStep>, String> {
-    let (git, team, _) = team_git(&store, &plans, plan_id)?;
-    // Teams approved before the registry existed have no rows: they are not gated.
-    let task_statuses: std::collections::HashMap<String, String> = store
-        .tasks(to_team(plan_id)?)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|t| (t.agent_id, t.status))
-        .collect();
+    let (git, team, approved) = team_git(&store, &plans, plan_id)?;
+    // Every open team has registry rows (startup backfills teams approved before it existed).
+    let root = workspace_root(&store, approved.workspace_id)?;
+    let task_statuses: HashMap<String, TaskStatus> =
+        registry(&store, &root, plan_id, &approved.plan)?
+            .tasks()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|t| (t.agent_id, t.status))
+            .collect();
     blocking(move || {
         if !git.root_is_clean().map_err(|e| e.to_string())? {
             return Err("workspace has uncommitted changes; commit or stash them first".into());
@@ -390,7 +404,7 @@ async fn team_integrate(
             }
             let done = task_statuses
                 .get(id)
-                .is_none_or(|st| st == TaskStatus::Done.as_str());
+                .is_some_and(|st| *st == TaskStatus::Done);
             if s.ahead > 0 && !done {
                 return Err(format!("agent {id} is not done (verified) yet"));
             }
@@ -443,6 +457,7 @@ async fn team_cleanup(
     discard_untracked: bool,
 ) -> Result<Vec<CleanupResult>, String> {
     let (git, team, _) = team_git(&store, &plans, plan_id)?;
+    let _cleaning = plans.cleaning(plan_id);
     let sessions = plans.take_sessions(plan_id);
     for id in &sessions {
         if pty.is_running(id)
@@ -589,14 +604,10 @@ async fn pty_spawn_agent(
         }
         // A finished task is being run again: set the old result aside and tell the agent how
         // the previous run ended.
-        let row = store
-            .tasks(reg.team)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|t| t.agent_id == agent_id);
+        let row = reg.task(&agent_id).map_err(|e| e.to_string())?;
         let previous = match row {
             Some(t) => {
-                let status = TaskStatus::parse(&t.status).map_err(|e| e.to_string())?;
+                let status = t.status;
                 let finished = !matches!(
                     status,
                     TaskStatus::Pending | TaskStatus::Running | TaskStatus::Verifying
@@ -664,7 +675,9 @@ async fn pty_spawn_agent(
     }
     let spawned = pty.spawn(&id, spec, sink);
     if spawned.is_ok() && is_agent {
-        watch_timeout(app_for_timeout, plan_id, agent_id.clone(), id.clone());
+        app_for_timeout
+            .state::<Deadlines>()
+            .watch(id.clone(), plan_id, agent_id.clone());
     }
     if let Err(e) = spawned {
         if is_agent && !other_live_session(&pty, &plans, plan_id, &agent_id, &id) {
@@ -680,6 +693,17 @@ async fn pty_spawn_agent(
         return Err(e.to_string());
     }
     Ok(())
+}
+
+/// One lock per worktree path, for git operations that must not interleave in it.
+fn worktree_lock(dir: &std::path::Path) -> Result<Arc<Mutex<()>>, String> {
+    static LOCKS: Mutex<Option<HashMap<PathBuf, Arc<Mutex<()>>>>> = Mutex::new(None);
+    let mut locks = LOCKS.lock().map_err(|e| e.to_string())?;
+    Ok(locks
+        .get_or_insert_default()
+        .entry(dir.to_path_buf())
+        .or_default()
+        .clone())
 }
 
 /// Merge every finished prerequisite's branch into the dependent's worktree (so it builds on
@@ -713,9 +737,10 @@ async fn merge_prerequisites(
     let dir = wt.path.clone();
     let branches: Vec<String> = prerequisites.iter().map(|p| p.branch.clone()).collect();
     blocking(move || {
-        // Two spawns of one agent (e.g. a remounted terminal) must not race on the git index.
-        static MERGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = MERGING.lock().map_err(|e| e.to_string())?;
+        // Two spawns of one agent (e.g. a remounted terminal) must not race on its git index;
+        // other worktrees merge independently.
+        let lock = worktree_lock(&dir)?;
+        let _guard = lock.lock().map_err(|e| e.to_string())?;
         for b in &branches {
             if git.is_merged_in(&dir, b) {
                 continue;
@@ -736,17 +761,43 @@ async fn merge_prerequisites(
     Ok(prerequisites)
 }
 
-/// Fail and stop an agent session that outlives `AGENT_TIMEOUT`.
-fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: String) {
-    std::thread::spawn(move || {
+/// Agent sessions and when they time out; checked by the background tick.
+#[derive(Default)]
+struct Deadlines(Mutex<HashMap<String, (u64, String, std::time::Instant)>>);
+
+impl Deadlines {
+    fn watch(&self, session: String, plan_id: u64, agent: String) {
         let deadline = std::time::Instant::now() + AGENT_TIMEOUT;
-        let pty = app.state::<PtyManager>();
-        while std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            if !pty.is_running(&session) {
-                return;
+        match self.0.lock() {
+            Ok(mut d) => {
+                d.insert(session, (plan_id, agent, deadline));
             }
+            Err(e) => eprintln!("task {agent}: timeout not watched: {e}"),
         }
+    }
+
+    /// Forget ended sessions; return the live ones past their deadline.
+    fn expired(&self, pty: &PtyManager) -> Vec<(String, u64, String)> {
+        let Ok(mut d) = self.0.lock() else {
+            return Vec::new();
+        };
+        let now = std::time::Instant::now();
+        d.retain(|session, _| pty.is_running(session));
+        let late: Vec<String> = d
+            .iter()
+            .filter(|(_, (_, _, at))| *at <= now)
+            .map(|(s, _)| s.clone())
+            .collect();
+        late.into_iter()
+            .filter_map(|s| d.remove(&s).map(|(plan, agent, _)| (s, plan, agent)))
+            .collect()
+    }
+}
+
+/// Fail and stop agent sessions that outlive `AGENT_TIMEOUT`.
+fn reap_timeouts(app: &tauri::AppHandle) {
+    let pty = app.state::<PtyManager>();
+    for (session, plan_id, agent) in app.state::<Deadlines>().expired(&pty) {
         let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let failed = plans
             .approved(&store, plan_id)
@@ -773,7 +824,7 @@ fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: St
             Ok(false) => {}
             Err(e) => eprintln!("task {agent}: recording timeout failed: {e}"),
         }
-    });
+    }
 }
 
 /// An agent's process ended: cancelled if INA killed it, otherwise its result (or the lack of
@@ -813,7 +864,9 @@ fn agent_exited(
         done.map_err(|e| e.to_string())
     });
     let kicked = result.and_then(|_| {
-        let rows = store.tasks(to_team(plan_id)?).map_err(|e| e.to_string())?;
+        let rows = registry(&store, root, plan_id, &team.plan)?
+            .tasks()
+            .map_err(|e| e.to_string())?;
         kick_verifications(app, plan_id, &team, &rows)
     });
     if let Err(e) = kicked {
@@ -840,24 +893,34 @@ fn kick_verifications(
     app: &tauri::AppHandle,
     plan_id: u64,
     team: &plan::Team,
-    rows: &[store::TaskRow],
+    rows: &[tasks::Task],
 ) -> Result<(), String> {
-    static RUNNING: std::sync::Mutex<Vec<(u64, String)>> = std::sync::Mutex::new(Vec::new());
+    static RUNNING: Mutex<Option<std::collections::HashSet<(u64, String)>>> = Mutex::new(None);
+    /// Releases the claim when the verification thread ends, even if it panics.
+    struct Claim((u64, String));
+    impl Drop for Claim {
+        fn drop(&mut self) {
+            if let Ok(mut running) = RUNNING.lock() {
+                running.get_or_insert_default().remove(&self.0);
+            }
+        }
+    }
     for t in rows {
-        if t.status != TaskStatus::Verifying.as_str() {
+        if t.status != TaskStatus::Verifying {
             continue;
         }
         let key = (plan_id, t.agent_id.clone());
         {
             let mut running = RUNNING.lock().map_err(|e| e.to_string())?;
-            if running.contains(&key) {
+            if !running.get_or_insert_default().insert(key.clone()) {
                 continue;
             }
-            running.push(key.clone());
         }
+        let claim = Claim(key);
         let app = app.clone();
         let team = team.clone();
         std::thread::spawn(move || {
+            let key = &claim.0;
             if let Err(e) = verify_agent(&app, plan_id, &team, &key.1) {
                 eprintln!("verify {}: {e}", key.1);
                 // Not left in `verifying`, where every poll would retry it.
@@ -875,9 +938,6 @@ fn kick_verifications(
                 if let Err(e2) = failed {
                     eprintln!("verify {}: recording failure failed: {e2}", key.1);
                 }
-            }
-            if let Ok(mut running) = RUNNING.lock() {
-                running.retain(|k| k != &key);
             }
         });
     }
@@ -946,11 +1006,9 @@ fn verify_agent(
     if let Some(m) = mismatch {
         detail.push_str(&format!("; files: {m}"));
     }
-    let summary = store
-        .tasks(reg.team)
+    let summary = reg
+        .task(agent_id)
         .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|t| t.agent_id == agent_id)
         .and_then(|t| t.summary);
     reg.transition(agent_id, to, summary.as_deref(), Some(&detail))
         .map_err(|e| e.to_string())?;
@@ -983,49 +1041,58 @@ const MSG_UNDELIVERED: &str = "undelivered";
 #[tauri::command]
 async fn team_messages(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<MessageView>, String> {
     blocking(move || {
-        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
-        let (team, root) = approved_team(&store, &plans, plan_id)?;
-        let reg = registry(&store, &root, plan_id, &team.plan)?;
-        let agents: Vec<&str> = team.plan.agents.iter().map(|a| a.id.as_str()).collect();
-        let mut sources: Vec<(&str, &std::path::Path)> = vec![(plan::ORCHESTRATOR_ID, &root)];
-        sources.extend(
-            team.worktrees
-                .iter()
-                .map(|(a, w)| (a.as_str(), w.path.as_path())),
-        );
-        for (from, dir) in sources {
-            let is_orch = from == plan::ORCHESTRATOR_ID;
-            messages::ingest(dir, is_orch, &agents, |got| {
-                let (kind, text, to, status) = match &got.message {
-                    Ok(m) => (
-                        m.kind.as_str(),
-                        m.text.clone(),
-                        m.to.as_deref(),
-                        if is_orch { MSG_PROPOSED } else { MSG_RECEIVED },
-                    ),
-                    Err(e) => ("invalid", format!("{}: {e}", got.file), None, MSG_REJECTED),
-                };
-                store
-                    .insert_message(
-                        reg.team,
-                        &store::NewMessage {
-                            from,
-                            to,
-                            kind,
-                            text: &text,
-                            status,
-                            reply_to: None,
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                reg.log_event(from, "message", Some(&format!("{kind} ({status})")));
-                Ok(())
-            })
-            .map_err(|e| e.to_string())?;
-        }
-        list_messages(&store, reg.team)
+        let (team, _) = sync_messages(&app, plan_id)?;
+        list_messages(&app.state::<Store>(), team)
     })
     .await
+}
+
+/// Ingest every outbox of the team (orchestrator root + agent worktrees) into the store;
+/// returns the registry's team id and how many messages arrived.
+fn sync_messages(app: &tauri::AppHandle, plan_id: u64) -> Result<(i64, usize), String> {
+    let mut arrived = 0;
+    let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+    let (team, root) = approved_team(&store, &plans, plan_id)?;
+    let reg = registry(&store, &root, plan_id, &team.plan)?;
+    let agents: Vec<&str> = team.plan.agents.iter().map(|a| a.id.as_str()).collect();
+    let mut sources: Vec<(&str, &std::path::Path)> = vec![(plan::ORCHESTRATOR_ID, &root)];
+    sources.extend(
+        team.worktrees
+            .iter()
+            .map(|(a, w)| (a.as_str(), w.path.as_path())),
+    );
+    for (from, dir) in sources {
+        let is_orch = from == plan::ORCHESTRATOR_ID;
+        arrived += messages::ingest(dir, is_orch, &agents, |got| {
+            let (kind, text, to, status) = match &got.message {
+                Ok(m) => (
+                    m.kind.as_str(),
+                    m.text.clone(),
+                    m.to.as_deref(),
+                    if is_orch { MSG_PROPOSED } else { MSG_RECEIVED },
+                ),
+                Err(e) => ("invalid", format!("{}: {e}", got.file), None, MSG_REJECTED),
+            };
+            store
+                .insert_message(
+                    reg.team,
+                    &store::NewMessage {
+                        from,
+                        to,
+                        kind,
+                        text: &text,
+                        status,
+                        reply_to: None,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            reg.log_event(from, "message", Some(&format!("{kind} ({status})")));
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?
+        .len();
+    }
+    Ok((reg.team, arrived))
 }
 
 fn list_messages(store: &Store, team: i64) -> Result<Vec<MessageView>, String> {
@@ -1172,32 +1239,35 @@ async fn message_decide(
 /// Re-read running agents' `result.json` and return the team's task registry.
 #[tauri::command]
 async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
-    blocking(move || {
-        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
-        let (team, root) = approved_team(&store, &plans, plan_id)?;
-        let reg = registry(&store, &root, plan_id, &team.plan)?;
-        let mut errors = std::collections::HashMap::new();
-        for (agent, wt) in &team.worktrees {
-            if let Err(e) = reg.apply_result(agent, &wt.path) {
-                errors.insert(agent.clone(), e.to_string());
-            }
+    blocking(move || sync_tasks(&app, plan_id)).await
+}
+
+/// Apply agents' results, start pending verifications and return the registry.
+/// Runs from the UI poll and from the background tick (idempotent).
+fn sync_tasks(app: &tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
+    let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+    let (team, root) = approved_team(&store, &plans, plan_id)?;
+    let reg = registry(&store, &root, plan_id, &team.plan)?;
+    let mut errors = std::collections::HashMap::new();
+    for (agent, wt) in &team.worktrees {
+        if let Err(e) = reg.apply_result(agent, &wt.path) {
+            errors.insert(agent.clone(), e.to_string());
         }
-        let rows = store.tasks(reg.team).map_err(|e| e.to_string())?;
-        kick_verifications(&app, plan_id, &team, &rows)?;
-        rows.into_iter()
-            .map(|t| {
-                Ok(TaskView {
-                    status: TaskStatus::parse(&t.status).map_err(|e| e.to_string())?,
-                    result_error: errors.remove(&t.agent_id),
-                    agent_id: t.agent_id,
-                    summary: t.summary,
-                    detail: t.detail,
-                    updated_at: t.updated_at,
-                })
+    }
+    let rows = reg.tasks().map_err(|e| e.to_string())?;
+    kick_verifications(app, plan_id, &team, &rows)?;
+    rows.into_iter()
+        .map(|t| {
+            Ok(TaskView {
+                status: t.status,
+                result_error: errors.remove(&t.agent_id),
+                agent_id: t.agent_id,
+                summary: t.summary,
+                detail: t.detail,
+                updated_at: t.updated_at,
             })
-            .collect()
-    })
-    .await
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -1235,17 +1305,94 @@ fn workspace_add(store: State<'_, Store>, path: String) -> Result<Workspace, Str
 }
 
 #[tauri::command]
-fn workspace_remove(store: State<'_, Store>, id: i64) -> Result<(), String> {
-    store.remove_workspace(id).map_err(|e| e.to_string())
+fn workspace_remove(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    id: i64,
+) -> Result<(), String> {
+    store.remove_workspace(id).map_err(|e| e.to_string())?;
+    plans.forget_workspace(id);
+    Ok(())
 }
 
+/// Background tick: keep every open team moving (results, verifications, outbox) whether or
+/// not its panels are open.
+fn tick_loop(app: &tauri::AppHandle) {
+    let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+    let mut last_errors = std::collections::HashMap::<u64, String>::new();
+    let mut last_tasks = HashMap::<u64, String>::new();
+    loop {
+        std::thread::sleep(TICK);
+        // A panic in one tick is logged; the loop (timeouts, verifications, outbox) survives.
+        let tick = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            reap_timeouts(app);
+            let workspaces = match store.list_workspaces() {
+                Ok(w) => w,
+                Err(e) => {
+                    eprintln!("tick: {e}");
+                    return;
+                }
+            };
+            for ws in workspaces {
+                let teams = match plans.open_teams(&store, ws.id) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("tick: workspace {}: {e}", ws.id);
+                        continue;
+                    }
+                };
+                for team in teams {
+                    if plans.is_cleaning(team.id) {
+                        continue;
+                    }
+                    let result = sync_tasks(app, team.id).and_then(|tasks| {
+                        let (_, arrived) = sync_messages(app, team.id)?;
+                        let snapshot = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
+                        let changed = last_tasks.get(&team.id) != Some(&snapshot);
+                        last_tasks.insert(team.id, snapshot);
+                        if changed || arrived > 0 {
+                            // Open panels refresh now instead of waiting for their fallback poll.
+                            app.emit(TEAM_CHANGED, team.id).map_err(|e| e.to_string())?;
+                        }
+                        Ok(())
+                    });
+                    match result {
+                        // Logged once per distinct error, not every tick.
+                        Err(e) if last_errors.get(&team.id) != Some(&e) => {
+                            eprintln!("tick: team {}: {e}", team.id);
+                            last_errors.insert(team.id, e);
+                        }
+                        Err(_) => {}
+                        Ok(_) => {
+                            last_errors.remove(&team.id);
+                        }
+                    }
+                }
+            }
+        }));
+        if tick.is_err() {
+            eprintln!("tick panicked; continuing");
+        }
+    }
+}
+
+/// Event (payload: plan id) emitted when a team's tasks or messages changed.
+const TEAM_CHANGED: &str = "team-changed";
+
+const TICK: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// No PTY survives a restart: finish every task still marked running with the result it left,
-/// or as lost.
+/// or as lost; give teams approved before the registry existed their rows.
 fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
     for ws in store.list_workspaces().map_err(|e| e.to_string())? {
         let root = ws.root();
         for team in plans.open_teams(store, ws.id).map_err(|e| e.to_string())? {
             let reg = registry(store, &root, team.id, &team.plan)?;
+            if reg.tasks().map_err(|e| e.to_string())?.is_empty() {
+                // Approved before the registry existed: start every agent as pending.
+                let agents: Vec<&str> = team.plan.agents.iter().map(|a| a.id.as_str()).collect();
+                reg.register(&agents).map_err(|e| e.to_string())?;
+            }
             for (agent, wt) in &team.worktrees {
                 if reg.status(agent).map_err(|e| e.to_string())? == Some(TaskStatus::Running) {
                     reg.finish(agent, &wt.path, "session lost (INA restarted)")
@@ -1263,13 +1410,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
         .manage(PlanStore::default())
+        .manage(Deadlines::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(Store::open(&dir.join("ina.db"))?);
+            // Before any command or the tick can run: a spawn racing this would be marked lost.
             if let Err(e) = recover_lost_tasks(&app.state::<Store>(), &app.state::<PlanStore>()) {
                 eprintln!("recovering tasks failed: {e}");
             }
+            let handle = app.handle().clone();
+            std::thread::spawn(move || tick_loop(&handle));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1374,5 +1525,17 @@ mod tests {
         reg.transition("b", TaskStatus::Running, None, None)
             .unwrap();
         assert_eq!(store.tasks(reg.team).unwrap()[1].summary, None);
+
+        // A team approved before the registry existed gets pending rows on startup.
+        let legacy = plans.insert(&store, ws.id, &plan).unwrap();
+        plans.approve(&store, legacy, &map).unwrap();
+        recover_lost_tasks(&store, &plans).unwrap();
+        let rows = store.tasks(to_team(legacy).unwrap()).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|t| (t.agent_id.as_str(), t.status.as_str()))
+                .collect::<Vec<_>>(),
+            [("a", "pending"), ("b", "pending")]
+        );
     }
 }

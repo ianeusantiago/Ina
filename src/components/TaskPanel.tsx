@@ -23,7 +23,7 @@ const NONE: TaskView[] = [];
 /** Polls the team's task registry (status comes from the backend: process + result.json). */
 export function useTeamTasks(planId: number) {
   const load = useCallback(() => teamTasks(planId), [planId]);
-  const { data: tasks, error, run } = usePolled(load, NONE);
+  const { data: tasks, error, run } = usePolled(load, NONE, planId);
   return { tasks, error, refresh: () => run() };
 }
 
