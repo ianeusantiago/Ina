@@ -8,6 +8,7 @@ const POLL_MS = 5000;
 const tone: Record<TaskStatus, string> = {
   pending: "text-muted",
   running: "text-sky-300",
+  verifying: "text-sky-300",
   done: "text-emerald-300",
   failed: "text-red-400",
   blocked: "text-amber-300",

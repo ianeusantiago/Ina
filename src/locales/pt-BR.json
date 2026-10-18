@@ -48,7 +48,10 @@
     "agents_other": "{{count}} agentes",
     "openTerminal": "Abrir terminal",
     "waitingFor": "Aguarda concluir: {{agents}}",
-    "blocked": "Bloqueada: um pré-requisito falhou"
+    "blocked": "Bloqueada: um pré-requisito falhou",
+    "verify": "Verificação",
+    "noVerify": "nenhuma (fica como não verificada)",
+    "verifyNote": "Ao aprovar, você autoriza o INA a rodar estes comandos no worktree de cada agente."
   },
   "integration": {
     "title": "Integração",
@@ -86,7 +89,8 @@
       "done": "concluída",
       "failed": "falhou",
       "blocked": "bloqueada",
-      "cancelled": "cancelada"
+      "cancelled": "cancelada",
+      "verifying": "verificando"
     },
     "autoStart": "Iniciar dependentes automaticamente"
   },

@@ -42,6 +42,8 @@ pub enum TaskStatus {
     Failed,
     Blocked,
     Cancelled,
+    /// The agent reported done; INA is running its checks.
+    Verifying,
 }
 
 impl TaskStatus {
@@ -53,6 +55,7 @@ impl TaskStatus {
             Self::Failed => "failed",
             Self::Blocked => "blocked",
             Self::Cancelled => "cancelled",
+            Self::Verifying => "verifying",
         }
     }
 
@@ -64,6 +67,7 @@ impl TaskStatus {
             "failed" => Self::Failed,
             "blocked" => Self::Blocked,
             "cancelled" => Self::Cancelled,
+            "verifying" => Self::Verifying,
             _ => return Err(TaskError::UnknownStatus(s.into())),
         })
     }
@@ -76,7 +80,8 @@ impl TaskStatus {
             (self, to),
             (Pending, Running | Cancelled | Blocked)
                 | (Blocked, Pending)
-                | (Running, Done | Failed | Blocked | Cancelled)
+                | (Running, Verifying | Failed | Blocked | Cancelled)
+                | (Verifying, Done | Failed | Cancelled)
                 | (Done | Failed | Blocked | Cancelled, Running)
         )
     }
@@ -383,8 +388,13 @@ impl Registry<'_> {
         }
     }
 
+    /// A reported `done` is only a claim: it moves to `verifying` until INA's checks pass.
     fn apply(&self, agent: &str, r: &AgentResult) -> Result<bool, TaskError> {
-        self.transition(agent, r.status.into(), Some(&r.summary), Some(RESULT_FILE))
+        let to = match r.status {
+            ResultStatus::Done => TaskStatus::Verifying,
+            s => s.into(),
+        };
+        self.transition(agent, to, Some(&r.summary), Some(RESULT_FILE))
     }
 
     /// The agent's process ended (or was lost): take its result, or record that it has none.
@@ -423,6 +433,7 @@ mod tests {
             task: "add endpoint".into(),
             acceptance: vec!["tests pass".into()],
             depends_on: vec![],
+            verify: vec![],
         }
     }
 
@@ -443,12 +454,16 @@ mod tests {
     fn transitions() {
         use TaskStatus::*;
         assert!(Pending.can_become(Running));
-        assert!(Running.can_become(Done));
+        assert!(Running.can_become(Verifying));
+        assert!(Verifying.can_become(Done));
+        assert!(!Running.can_become(Done));
         assert!(Done.can_become(Running));
         assert!(!Pending.can_become(Done));
         assert!(!Done.can_become(Failed));
         assert!(!Cancelled.can_become(Done));
-        for s in [Pending, Running, Done, Failed, Blocked, Cancelled] {
+        for s in [
+            Pending, Running, Done, Failed, Blocked, Cancelled, Verifying,
+        ] {
             assert_eq!(TaskStatus::parse(s.as_str()).unwrap(), s);
         }
     }
@@ -575,6 +590,9 @@ mod tests {
 
         reg.transition("api", TaskStatus::Running, None, None)
             .unwrap();
+        reg.transition("api", TaskStatus::Verifying, Some("ok"), None)
+            .unwrap();
+        assert_eq!(reg.status("ui").unwrap(), Some(TaskStatus::Blocked));
         reg.transition("api", TaskStatus::Done, Some("ok"), None)
             .unwrap();
         assert_eq!(reg.status("ui").unwrap(), Some(TaskStatus::Pending));

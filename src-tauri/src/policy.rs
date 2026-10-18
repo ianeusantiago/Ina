@@ -27,6 +27,11 @@ pub enum Program {
     Claude,
     Shell,
     Git,
+    // Verification commands approved with a plan.
+    Cargo,
+    Node,
+    Python,
+    Pytest,
 }
 
 impl Program {
@@ -35,6 +40,10 @@ impl Program {
             Program::Claude => "claude.exe",
             Program::Shell => "powershell.exe",
             Program::Git => "git.exe",
+            Program::Cargo => "cargo.exe",
+            Program::Node => "node.exe",
+            Program::Python => "python.exe",
+            Program::Pytest => "pytest.exe",
         }
     }
 }

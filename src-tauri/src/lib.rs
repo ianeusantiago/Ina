@@ -6,6 +6,7 @@ mod setup;
 mod store;
 mod tasks;
 mod trust;
+mod verify;
 mod worktree;
 
 use std::path::PathBuf;
@@ -656,7 +657,7 @@ fn agent_exited(
         };
         done.map_err(|e| e.to_string())
     });
-    if let Err(e) = result {
+    if let Err(e) = result.and_then(|_| kick_verifications(app, plan_id)) {
         eprintln!("task {agent}: recording exit failed: {e}");
     }
 }
@@ -672,6 +673,86 @@ struct TaskView {
     updated_at: String,
     /// `result.json` exists but is invalid; the agent may still fix it.
     result_error: Option<String>,
+}
+
+/// Start verification for every `verifying` task of a team that is not being verified yet.
+/// Called from the poll, on exit and after a restart, so a lost run is simply restarted.
+fn kick_verifications(app: &tauri::AppHandle, plan_id: u64) -> Result<(), String> {
+    static RUNNING: std::sync::Mutex<Vec<(u64, String)>> = std::sync::Mutex::new(Vec::new());
+    let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    for t in store.tasks(to_team(plan_id)?).map_err(|e| e.to_string())? {
+        if t.status != TaskStatus::Verifying.as_str() {
+            continue;
+        }
+        let key = (plan_id, t.agent_id.clone());
+        {
+            let mut running = RUNNING.lock().map_err(|e| e.to_string())?;
+            if running.contains(&key) {
+                continue;
+            }
+            running.push(key.clone());
+        }
+        let app = app.clone();
+        let team = team.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = verify_agent(&app, plan_id, &team, &key.1) {
+                eprintln!("verify {}: {e}", key.1);
+            }
+            if let Ok(mut running) = RUNNING.lock() {
+                running.retain(|k| k != &key);
+            }
+        });
+    }
+    Ok(())
+}
+
+/// Run one agent's checks, compare declared files with its branch, then mark it done
+/// (verified, or explicitly unverified when it has no checks) or failed.
+fn verify_agent(
+    app: &tauri::AppHandle,
+    plan_id: u64,
+    team: &plan::Team,
+    agent_id: &str,
+) -> Result<(), String> {
+    let store = app.state::<Store>();
+    let agent = team.plan.agent(agent_id).map_err(|e| e.to_string())?;
+    let wt = team
+        .worktrees
+        .get(agent_id)
+        .ok_or("agent has no worktree")?;
+    let root = workspace_root(&store, team.workspace_id)?;
+    let declared = tasks::read_result(&wt.path)
+        .ok()
+        .flatten()
+        .map(|r| r.files)
+        .unwrap_or_default();
+    let changed = git_for(&store, team.workspace_id)?
+        .status(wt)
+        .map_err(|e| e.to_string())?
+        .files;
+    let mismatch = verify::files_mismatch(&declared, &changed);
+    let reg = registry(&store, &root, plan_id, &team.plan)?;
+    let (to, mut detail) = match verify::run_checks(&agent.verify, &root, &wt.path) {
+        verify::Outcome::Passed(0) => (TaskStatus::Done, "unverified: no checks".to_string()),
+        verify::Outcome::Passed(n) => (TaskStatus::Done, format!("verified: {n} check(s) passed")),
+        verify::Outcome::Failed { check, detail } => (
+            TaskStatus::Failed,
+            format!("verification failed: `{check}` {detail}"),
+        ),
+    };
+    if let Some(m) = mismatch {
+        detail.push_str(&format!("; files: {m}"));
+    }
+    let summary = store
+        .tasks(reg.team)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|t| t.agent_id == agent_id)
+        .and_then(|t| t.summary);
+    reg.transition(agent_id, to, summary.as_deref(), Some(&detail))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// A message as shown in the team panel.
@@ -890,6 +971,7 @@ async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>
                 errors.insert(agent.clone(), e.to_string());
             }
         }
+        kick_verifications(&app, plan_id)?;
         store
             .tasks(reg.team)
             .map_err(|e| e.to_string())?
@@ -1072,10 +1154,12 @@ mod tests {
         );
         assert_eq!(
             (tasks[1].status.as_str(), tasks[1].summary.as_deref()),
-            ("done", Some("ok"))
+            ("verifying", Some("ok"))
         );
 
-        // Running again clears the previous run's summary.
+        // After verification, running again clears the previous run's summary.
+        reg.transition("b", TaskStatus::Done, Some("ok"), None)
+            .unwrap();
         reg.transition("b", TaskStatus::Running, None, None)
             .unwrap();
         assert_eq!(store.tasks(reg.team).unwrap()[1].summary, None);

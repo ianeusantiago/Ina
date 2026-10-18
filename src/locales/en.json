@@ -48,7 +48,10 @@
     "agents_other": "{{count}} agents",
     "openTerminal": "Open terminal",
     "waitingFor": "Waits for: {{agents}}",
-    "blocked": "Blocked: a prerequisite failed"
+    "blocked": "Blocked: a prerequisite failed",
+    "verify": "Verification",
+    "noVerify": "none (stays unverified)",
+    "verifyNote": "Approving lets INA run these commands in each agent's worktree."
   },
   "integration": {
     "title": "Integration",
@@ -86,7 +89,8 @@
       "done": "done",
       "failed": "failed",
       "blocked": "blocked",
-      "cancelled": "cancelled"
+      "cancelled": "cancelled",
+      "verifying": "verifying"
     },
     "autoStart": "Start dependents automatically"
   },

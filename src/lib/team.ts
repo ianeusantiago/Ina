@@ -8,7 +8,16 @@ export interface AgentSpec {
   task: string;
   acceptance: string[];
   dependsOn: string[];
+  /** Verification commands, approved with the plan. */
+  verify: Check[];
 }
+
+export interface Check {
+  program: "cargo" | "node" | "python" | "pytest";
+  args: string[];
+}
+
+export const checkText = (c: Check) => [c.program, ...c.args].join(" ");
 
 export interface Plan {
   summary: string;
@@ -85,7 +94,8 @@ export interface ClaudeSetup {
 
 export const claudeSetup = () => invoke<ClaudeSetup>("claude_setup");
 
-export type TaskStatus = "pending" | "running" | "done" | "failed" | "blocked" | "cancelled";
+export type TaskStatus =
+  "pending" | "running" | "verifying" | "done" | "failed" | "blocked" | "cancelled";
 
 export interface TaskView {
   agentId: string;

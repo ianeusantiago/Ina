@@ -9,6 +9,7 @@ const agent = (id: string, dependsOn: string[] = []): AgentSpec => ({
   task: "t",
   acceptance: [],
   dependsOn,
+  verify: [],
 });
 
 describe("prerequisites", () => {

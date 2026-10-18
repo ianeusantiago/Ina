@@ -4,6 +4,7 @@ import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   type TaskStatus,
   approvePlan,
+  checkText,
   generatePlan,
   listTeams,
   ORCHESTRATOR_ID,
@@ -297,6 +298,9 @@ export function TeamPanel({
             </button>
           )}
         </div>
+        {stage.kind === "review" && stage.draft.plan.agents.some((a) => a.verify.length > 0) && (
+          <p className="text-xs text-muted">{t("team.verifyNote")}</p>
+        )}
         {untrusted && stage.kind === "review" && (
           <div role="alert" className="flex flex-col gap-1 rounded border border-line p-2 text-xs">
             <p className="text-zinc-100">{t("team.untrusted")}</p>
@@ -333,6 +337,21 @@ export function TeamPanel({
                       <li key={c}>{c}</li>
                     ))}
                   </ul>
+                  <div className="mt-1 text-xs">
+                    <span className="text-muted">{t("team.verify")}: </span>
+                    {a.verify.length === 0 ? (
+                      <span className="text-amber-300">{t("team.noVerify")}</span>
+                    ) : (
+                      a.verify.map((c) => (
+                        <code
+                          key={checkText(c)}
+                          className="mr-2 rounded bg-line px-1 text-zinc-100"
+                        >
+                          {checkText(c)}
+                        </code>
+                      ))
+                    )}
+                  </div>
                 </li>
               ))}
             </ol>

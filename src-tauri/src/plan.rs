@@ -58,6 +58,62 @@ pub struct AgentSpec {
     pub acceptance: Vec<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Commands that check the acceptance criteria; run in the agent's worktree after it
+    /// reports done. Approved together with the plan.
+    #[serde(default)]
+    pub verify: Vec<Check>,
+}
+
+pub const MAX_CHECKS: usize = 4;
+const MAX_CHECK_ARGS: usize = 16;
+const MAX_CHECK_ARG_LEN: usize = 200;
+
+/// Programs a verification command may use (`.cmd` shims such as npm are not allowed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckProgram {
+    Cargo,
+    Node,
+    Python,
+    Pytest,
+}
+
+impl CheckProgram {
+    pub fn program(self) -> crate::policy::Program {
+        use crate::policy::Program;
+        match self {
+            Self::Cargo => Program::Cargo,
+            Self::Node => Program::Node,
+            Self::Python => Program::Python,
+            Self::Pytest => Program::Pytest,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Cargo => "cargo",
+            Self::Node => "node",
+            Self::Python => "python",
+            Self::Pytest => "pytest",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Check {
+    pub program: CheckProgram,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+impl Check {
+    /// Display form, e.g. `pytest test_x.py`.
+    pub fn display(&self) -> String {
+        std::iter::once(self.program.name())
+            .chain(self.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,7 +125,7 @@ pub struct Plan {
 }
 
 /// JSON schema handed to `claude --json-schema`. Must match `Plan` (camelCase).
-pub const PLAN_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["summary","mode","agents"],"properties":{"summary":{"type":"string"},"mode":{"type":"string","enum":["parallel","sequential"]},"agents":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["id","name","role","scope","task","acceptance","dependsOn"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9][a-z0-9-]{0,31}$"},"name":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"task":{"type":"string"},"acceptance":{"type":"array","items":{"type":"string"}},"dependsOn":{"type":"array","items":{"type":"string"}}}}}}}"#;
+pub const PLAN_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["summary","mode","agents"],"properties":{"summary":{"type":"string"},"mode":{"type":"string","enum":["parallel","sequential"]},"agents":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["id","name","role","scope","task","acceptance","dependsOn","verify"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9][a-z0-9-]{0,31}$"},"name":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"task":{"type":"string"},"acceptance":{"type":"array","items":{"type":"string"}},"dependsOn":{"type":"array","items":{"type":"string"}},"verify":{"type":"array","maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["program","args"],"properties":{"program":{"type":"string","enum":["cargo","node","python","pytest"]},"args":{"type":"array","maxItems":16,"items":{"type":"string"}}}}}}}}}}"#;
 
 fn valid_agent_id(id: &str) -> bool {
     let b = id.as_bytes();
@@ -106,6 +162,16 @@ impl Plan {
                 || a.acceptance.len() > 32
             {
                 return bad(format!("agent {} has empty or oversized fields", a.id));
+            }
+            let bad_check = a.verify.len() > MAX_CHECKS
+                || a.verify.iter().any(|c| {
+                    c.args.len() > MAX_CHECK_ARGS
+                        || c.args
+                            .iter()
+                            .any(|x| x.len() > MAX_CHECK_ARG_LEN || x.contains('\0'))
+                });
+            if bad_check {
+                return bad(format!("agent {} has invalid verification commands", a.id));
             }
         }
         for a in &self.agents {
@@ -200,7 +266,10 @@ pub fn planner_prompt(request: &str) -> String {
         "You are the INA orchestrator planner. Break the user's request into a small team of \
          AI coding agents (1 to {MAX_AGENTS}). For each agent give a short kebab-case id, a name, \
          a role, the scope (files/areas it owns, non-overlapping where possible), the concrete \
-         task, verifiable acceptance criteria, and dependsOn (ids it must wait for). Choose mode \
+         task, verifiable acceptance criteria, dependsOn (ids it must wait for), and verify: up \
+         to {MAX_CHECKS} commands that check the criteria automatically, using only the programs \
+         cargo, node, python or pytest (e.g. {{\"program\": \"pytest\", \"args\": [\"test_x.py\"]}}); \
+         they run in the agent's worktree, so use [] when nothing can be checked. Choose mode \
          \"parallel\" when agents can work at the same time, otherwise \"sequential\". Do not \
          modify any files; only return the plan.\n\nUser request:\n{request}"
     )
@@ -542,6 +611,7 @@ mod tests {
             task: "do it".into(),
             acceptance: vec!["tests pass".into()],
             depends_on: deps.iter().map(|d| d.to_string()).collect(),
+            verify: vec![],
         }
     }
 
@@ -562,6 +632,26 @@ mod tests {
         ]);
         let ids: Vec<_> = p.topo_order().iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, ["docs", "api", "ui"]);
+    }
+
+    #[test]
+    fn verification_commands_are_bounded() {
+        let mut a = agent("api", &[]);
+        a.verify = vec![Check {
+            program: CheckProgram::Pytest,
+            args: vec!["test_api.py".into()],
+        }];
+        assert_eq!(a.verify[0].display(), "pytest test_api.py");
+        plan(vec![a.clone()]).validate().unwrap();
+        a.verify = vec![a.verify[0].clone(); MAX_CHECKS + 1];
+        assert!(plan(vec![a.clone()]).validate().is_err());
+        a.verify = vec![Check {
+            program: CheckProgram::Node,
+            args: vec!["x\0y".into()],
+        }];
+        assert!(plan(vec![a]).validate().is_err());
+        // npm (a .cmd shim) is not a valid program.
+        assert!(serde_json::from_str::<Check>(r#"{"program":"npm","args":["test"]}"#).is_err());
     }
 
     #[test]
