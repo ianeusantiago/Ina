@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::worktree::Worktree;
+
 /// One session is reserved for the orchestrator; the rest stay under `policy::MAX_SESSIONS`.
 pub const MAX_AGENTS: usize = 8;
 pub const MAX_REQUEST_LEN: usize = 8 * 1024;
@@ -27,6 +29,8 @@ pub enum PlanError {
     NotFound,
     #[error("plan has not been approved")]
     NotApproved,
+    #[error("plan was already approved")]
+    AlreadyApproved,
     #[error("agent not found in plan: {0}")]
     UnknownAgent(String),
 }
@@ -159,36 +163,45 @@ pub fn planner_prompt(request: &str) -> String {
     )
 }
 
-pub fn orchestrator_prompt(plan: &Plan) -> String {
+pub fn orchestrator_prompt(plan: &Plan, worktrees: &HashMap<String, Worktree>) -> String {
     let team: Vec<String> = plan
         .agents
         .iter()
         .map(|a| {
+            let (branch, path) = worktrees
+                .get(&a.id)
+                .map(|w| (w.branch.clone(), w.path.display().to_string()))
+                .unwrap_or_default();
             format!(
-                "- {} ({}): {} [depends on: {}]",
+                "- {} ({}): {} [depends on: {}] branch `{}`, worktree {}",
                 a.id,
                 a.role,
                 a.task,
-                a.depends_on.join(", ")
+                a.depends_on.join(", "),
+                branch,
+                path
             )
         })
         .collect();
     format!(
         "You are the INA orchestrator. The user approved this plan ({:?} mode): {}\n\nTeam:\n{}\n\n\
-         Each agent runs in its own terminal. Monitor progress, validate results against the \
-         acceptance criteria, integrate, and report honestly. Do not do the agents' work yourself.",
+         Each agent runs in its own terminal and commits to its own branch in its own git \
+         worktree; their changes do not appear in your checkout until integrated. Monitor the \
+         branches (e.g. `git log HEAD..<branch>`), validate results against the acceptance \
+         criteria, integrate, and report honestly. Do not do the agents' work yourself.",
         plan.mode,
         plan.summary,
         team.join("\n")
     )
 }
 
-pub fn agent_prompt(plan: &Plan, agent: &AgentSpec) -> String {
+pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
     let criteria: Vec<String> = agent.acceptance.iter().map(|c| format!("- {c}")).collect();
     format!(
         "You are agent \"{}\" ({}) in an INA team. Overall goal: {}\n\nYour scope: {}\n\
-         Your task: {}\n\nAcceptance criteria:\n{}\n\nDepends on: {}. Stay within your scope and \
-         report clearly when done or blocked.",
+         Your task: {}\n\nAcceptance criteria:\n{}\n\nDepends on: {}. You work in your own git \
+         worktree on branch `{}`; commit your work there and do not touch other branches. Stay \
+         within your scope and report clearly when done or blocked.",
         agent.name,
         agent.role,
         plan.summary,
@@ -199,7 +212,8 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec) -> String {
             "none".into()
         } else {
             agent.depends_on.join(", ")
-        }
+        },
+        branch
     )
 }
 
@@ -302,7 +316,16 @@ pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
 struct Entry {
     workspace_id: i64,
     plan: Plan,
-    approved: bool,
+    /// Set on approval: each agent's isolated worktree.
+    worktrees: Option<HashMap<String, Worktree>>,
+}
+
+/// An approved plan, ready to spawn.
+#[derive(Debug, Clone)]
+pub struct Team {
+    pub workspace_id: i64,
+    pub plan: Plan,
+    pub worktrees: HashMap<String, Worktree>,
 }
 
 /// Plans awaiting or holding approval. The backend keeps them so agent prompts never come
@@ -322,26 +345,42 @@ impl PlanStore {
             Entry {
                 workspace_id,
                 plan,
-                approved: false,
+                worktrees: None,
             },
         );
         id
     }
 
-    pub fn approve(&self, id: u64) -> Result<(), PlanError> {
+    /// A plan still awaiting approval.
+    pub fn pending(&self, id: u64) -> Result<(i64, Plan), PlanError> {
+        let g = self.inner.lock().expect("plan store poisoned");
+        let e = g.1.get(&id).ok_or(PlanError::NotFound)?;
+        if e.worktrees.is_some() {
+            return Err(PlanError::AlreadyApproved);
+        }
+        Ok((e.workspace_id, e.plan.clone()))
+    }
+
+    /// Record approval with every agent's worktree. Fails if already approved.
+    pub fn approve(&self, id: u64, worktrees: HashMap<String, Worktree>) -> Result<(), PlanError> {
         let mut g = self.inner.lock().expect("plan store poisoned");
-        g.1.get_mut(&id).ok_or(PlanError::NotFound)?.approved = true;
+        let e = g.1.get_mut(&id).ok_or(PlanError::NotFound)?;
+        if e.worktrees.is_some() {
+            return Err(PlanError::AlreadyApproved);
+        }
+        e.worktrees = Some(worktrees);
         Ok(())
     }
 
-    /// Approved plan and its workspace, or an error if missing/unapproved.
-    pub fn approved(&self, id: u64) -> Result<(i64, Plan), PlanError> {
+    pub fn approved(&self, id: u64) -> Result<Team, PlanError> {
         let g = self.inner.lock().expect("plan store poisoned");
         let e = g.1.get(&id).ok_or(PlanError::NotFound)?;
-        if !e.approved {
-            return Err(PlanError::NotApproved);
-        }
-        Ok((e.workspace_id, e.plan.clone()))
+        let worktrees = e.worktrees.clone().ok_or(PlanError::NotApproved)?;
+        Ok(Team {
+            workspace_id: e.workspace_id,
+            plan: e.plan.clone(),
+            worktrees,
+        })
     }
 }
 
@@ -412,17 +451,29 @@ mod tests {
         let store = PlanStore::default();
         let id = store.insert(1, plan(vec![agent("api", &[])]));
         assert!(matches!(store.approved(id), Err(PlanError::NotApproved)));
-        store.approve(id).unwrap();
-        assert_eq!(store.approved(id).unwrap().0, 1);
+        assert_eq!(store.pending(id).unwrap().0, 1);
+        store.approve(id, HashMap::new()).unwrap();
+        assert_eq!(store.approved(id).unwrap().workspace_id, 1);
+        assert!(matches!(store.pending(id), Err(PlanError::AlreadyApproved)));
+        assert!(matches!(
+            store.approve(id, HashMap::new()),
+            Err(PlanError::AlreadyApproved)
+        ));
         assert!(matches!(store.approved(id + 1), Err(PlanError::NotFound)));
     }
 
     #[test]
     fn prompts_carry_plan_data() {
         let p = plan(vec![agent("api", &[]), agent("ui", &["api"])]);
-        let a = agent_prompt(&p, p.agent("ui").unwrap());
+        let a = agent_prompt(&p, p.agent("ui").unwrap(), "ina/r/ui");
         assert!(a.contains("Depends on: api") && a.contains("- tests pass"));
-        assert!(orchestrator_prompt(&p).contains("- ui (dev)"));
+        assert!(a.contains("`ina/r/ui`"));
+        let wt = Worktree {
+            path: "C:/w/.ina/worktrees/r-ui".into(),
+            branch: "ina/r/ui".into(),
+        };
+        let o = orchestrator_prompt(&p, &HashMap::from([("ui".to_string(), wt)]));
+        assert!(o.contains("- ui (dev)") && o.contains("branch `ina/r/ui`"));
         assert!(planner_args("hi").contains(&PLAN_SCHEMA.to_string()));
     }
 }

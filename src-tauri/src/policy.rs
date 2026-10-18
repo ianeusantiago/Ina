@@ -26,6 +26,7 @@ pub enum PolicyError {
 pub enum Program {
     Claude,
     Shell,
+    Git,
 }
 
 impl Program {
@@ -33,6 +34,7 @@ impl Program {
         match self {
             Program::Claude => "claude.exe",
             Program::Shell => "powershell.exe",
+            Program::Git => "git.exe",
         }
     }
 }

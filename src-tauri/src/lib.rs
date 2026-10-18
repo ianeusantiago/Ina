@@ -3,6 +3,7 @@ mod policy;
 mod pty;
 mod store;
 mod trust;
+mod worktree;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -138,9 +139,48 @@ fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool,
     folder_trusted(&root)
 }
 
+/// Approve a plan: create one git worktree + branch per agent (all or nothing), then record it.
 #[tauri::command]
-fn plan_approve(plans: State<'_, PlanStore>, plan_id: u64) -> Result<(), String> {
-    plans.approve(plan_id).map_err(|e| e.to_string())
+async fn plan_approve(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<(), String> {
+    let (workspace_id, plan) = plans.pending(plan_id).map_err(|e| e.to_string())?;
+    let root = store
+        .get_workspace(workspace_id)
+        .map_err(|e| e.to_string())?
+        .root();
+    let root = policy::simplify(root.canonicalize().map_err(|e| e.to_string())?);
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
+    let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
+    let git = worktree::Git::new(exe, root, env_remove);
+    // Run id: unique per approval and across restarts, so branch names never collide.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let run = format!("{secs:x}");
+    let ids: Vec<String> = plan.agents.iter().map(|a| a.id.clone()).collect();
+    let (git, team) = tauri::async_runtime::spawn_blocking(move || {
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let team = git.create_team(&run, &refs);
+        (git, team)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let team = team.map_err(|e| e.to_string())?;
+    let map = plan
+        .agents
+        .iter()
+        .map(|a| a.id.clone())
+        .zip(team.iter().cloned())
+        .collect();
+    plans.approve(plan_id, map).map_err(|e| {
+        git.remove_team(&team);
+        e.to_string()
+    })
 }
 
 /// Opens an interactive `claude` session for the orchestrator or one agent of an approved plan.
@@ -159,25 +199,35 @@ fn pty_spawn_agent(
     on_event: Channel<PtyMessage>,
 ) -> Result<(), String> {
     valid_id(&id)?;
-    let (workspace_id, plan) = plans.approved(plan_id).map_err(|e| e.to_string())?;
-    let prompt = if agent_id == plan::ORCHESTRATOR_ID {
-        plan::orchestrator_prompt(&plan)
-    } else {
-        plan::agent_prompt(&plan, plan.agent(&agent_id).map_err(|e| e.to_string())?)
-    };
+    let team = plans.approved(plan_id).map_err(|e| e.to_string())?;
     let root = store
-        .get_workspace(workspace_id)
+        .get_workspace(team.workspace_id)
         .map_err(|e| e.to_string())?
         .root();
     if !folder_trusted(&root)? {
         return Err(trust::NOT_TRUSTED.into());
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
+    // Orchestrator works in the workspace root; each agent in its own worktree.
+    let (prompt, cwd) = if agent_id == plan::ORCHESTRATOR_ID {
+        (
+            plan::orchestrator_prompt(&team.plan, &team.worktrees),
+            root.clone(),
+        )
+    } else {
+        let agent = team.plan.agent(&agent_id).map_err(|e| e.to_string())?;
+        let wt = team
+            .worktrees
+            .get(&agent_id)
+            .ok_or("agent has no worktree")?;
+        let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
+        (prompt, wt.path.clone())
+    };
     let mut spec = policy::authorize(
         Program::Claude,
         vec![prompt],
         &root,
-        &root,
+        &cwd,
         pty.count(),
         &path_var,
     )
