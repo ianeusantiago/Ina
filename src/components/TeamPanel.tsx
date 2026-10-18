@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ghostButton } from "./ui";
+import { ghostButton, field } from "./ui";
+import { usePersistedState } from "../lib/usePersistedState";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   type TaskStatus,
@@ -26,12 +27,61 @@ type Stage =
 
 const AUTO_START_KEY = "ina.autoStart";
 
-function savedAutoStart(): boolean {
-  try {
-    return localStorage.getItem(AUTO_START_KEY) !== "off";
-  } catch {
-    return true;
-  }
+/** Missing or anything but "off" means on. */
+const parseAutoStart = (v: string | null) => v !== "off";
+
+const SPLIT_KEY = "ina.teamSplit";
+const SPLIT_MIN = 10;
+const SPLIT_MAX = 70;
+
+/** Height of the task/message area, in % of the team view. */
+function parseSplit(v: string | null): number {
+  const n = Number(v);
+  return v !== null && n >= SPLIT_MIN && n <= SPLIT_MAX ? n : 40;
+}
+
+/** Drag handle that resizes the area above it as a % of `container`'s height. */
+function Splitter({
+  container,
+  value,
+  onChange,
+}: {
+  container: React.RefObject<HTMLDivElement | null>;
+  value: number;
+  onChange: (pct: number) => void;
+}) {
+  const { t } = useTranslation();
+  const set = (pct: number) => onChange(Math.round(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct))));
+  const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const box = container.current?.getBoundingClientRect();
+    if (!box) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => set(((ev.clientY - box.top) / box.height) * 100);
+    const target = e.currentTarget;
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  };
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label={t("team.resize")}
+      aria-valuenow={value}
+      aria-valuemin={SPLIT_MIN}
+      aria-valuemax={SPLIT_MAX}
+      tabIndex={0}
+      className="h-1.5 shrink-0 cursor-row-resize rounded bg-line/50 hover:bg-zinc-600 focus:bg-zinc-600 focus:outline-none"
+      onPointerDown={drag}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowUp") set(value - 5);
+        if (e.key === "ArrowDown") set(value + 5);
+      }}
+    />
+  );
 }
 
 const button =
@@ -110,15 +160,11 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   const { id, plan: p } = draft;
   const { tasks, error, refresh } = useTeamTasks(id);
   const [maxId, setMaxId] = useState<string | null>(null);
-  const [autoStart, setAutoStart] = useState(savedAutoStart);
-  const changeAutoStart = (on: boolean) => {
-    setAutoStart(on);
-    try {
-      localStorage.setItem(AUTO_START_KEY, on ? "on" : "off");
-    } catch {
-      // Not persisted; applies to this session.
-    }
-  };
+  const [autoStart, changeAutoStart] = usePersistedState(AUTO_START_KEY, parseAutoStart, (on) =>
+    on ? "on" : "off",
+  );
+  const view = useRef<HTMLDivElement>(null);
+  const [split, changeSplit] = usePersistedState(SPLIT_KEY, parseSplit);
   const status = new Map(tasks.map((x) => [x.agentId, x.status]));
   const count = p.agents.length + 1;
   const cols = maxId !== null ? 1 : count <= 2 ? count : count <= 4 ? 2 : 3;
@@ -128,61 +174,67 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <IntegrationBar planId={id} />
-      <div className="grid max-h-[40%] min-h-0 grid-cols-2 gap-2 overflow-hidden">
-        <div className="min-h-0 overflow-y-auto">
-          <TaskPanel
-            agents={p.agents}
-            tasks={tasks}
-            error={error}
-            onRefresh={() => void refresh()}
-            autoStart={autoStart}
-            onAutoStart={changeAutoStart}
-          />
+      <div ref={view} className="flex min-h-0 flex-1 flex-col gap-1">
+        <div
+          className="grid min-h-0 shrink-0 grid-cols-2 gap-2 overflow-hidden"
+          style={{ height: `${split}%` }}
+        >
+          <div className="min-h-0 overflow-y-auto">
+            <TaskPanel
+              agents={p.agents}
+              tasks={tasks}
+              error={error}
+              onRefresh={() => void refresh()}
+              autoStart={autoStart}
+              onAutoStart={changeAutoStart}
+            />
+          </div>
+          <MessagePanel planId={id} agents={p.agents} />
         </div>
-        <MessagePanel planId={id} agents={p.agents} />
-      </div>
-      <div
-        className="grid min-h-0 flex-1 gap-2"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-      >
-        <div className={cell(ORCHESTRATOR_ID)}>
-          <AgentTerminal
-            planId={id}
-            agentId={ORCHESTRATOR_ID}
-            title={t("team.orchestrator")}
-            subtitle={p.summary}
-            lazy={resumed}
-            waitingFor={[]}
-            autoOpen={false}
-            maximized={maxId === ORCHESTRATOR_ID}
-            onToggleMaximize={toggle(ORCHESTRATOR_ID)}
-          />
+        <Splitter container={view} value={split} onChange={changeSplit} />
+        <div
+          className="grid min-h-0 flex-1 gap-2"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+        >
+          <div className={cell(ORCHESTRATOR_ID)}>
+            <AgentTerminal
+              planId={id}
+              agentId={ORCHESTRATOR_ID}
+              title={t("team.orchestrator")}
+              subtitle={p.summary}
+              lazy={resumed}
+              waitingFor={[]}
+              autoOpen={false}
+              maximized={maxId === ORCHESTRATOR_ID}
+              onToggleMaximize={toggle(ORCHESTRATOR_ID)}
+            />
+          </div>
+          {p.agents.map((a) => {
+            const prereqs = prerequisites(p, a.id);
+            const waitingFor = prereqs.filter((d) => status.get(d) !== "done");
+            const autoOpen =
+              autoStart &&
+              prereqs.length > 0 &&
+              waitingFor.length === 0 &&
+              status.get(a.id) === "pending";
+            return (
+              <div key={a.id} className={cell(a.id)}>
+                <AgentTerminal
+                  planId={id}
+                  agentId={a.id}
+                  title={a.name}
+                  subtitle={a.role}
+                  lazy={resumed || prereqs.length > 0}
+                  waitingFor={waitingFor}
+                  autoOpen={autoOpen}
+                  status={status.get(a.id)}
+                  maximized={maxId === a.id}
+                  onToggleMaximize={toggle(a.id)}
+                />
+              </div>
+            );
+          })}
         </div>
-        {p.agents.map((a) => {
-          const prereqs = prerequisites(p, a.id);
-          const waitingFor = prereqs.filter((d) => status.get(d) !== "done");
-          const autoOpen =
-            autoStart &&
-            prereqs.length > 0 &&
-            waitingFor.length === 0 &&
-            status.get(a.id) === "pending";
-          return (
-            <div key={a.id} className={cell(a.id)}>
-              <AgentTerminal
-                planId={id}
-                agentId={a.id}
-                title={a.name}
-                subtitle={a.role}
-                lazy={resumed || prereqs.length > 0}
-                waitingFor={waitingFor}
-                autoOpen={autoOpen}
-                status={status.get(a.id)}
-                maximized={maxId === a.id}
-                onToggleMaximize={toggle(a.id)}
-              />
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -273,7 +325,7 @@ export function TeamPanel({
         <label className="flex flex-col gap-1 text-xs text-muted">
           {t("team.requestLabel")}
           <textarea
-            className="min-h-28 resize-y rounded border border-line bg-transparent p-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className={`min-h-28 resize-y p-2 text-sm ${field}`}
             value={request}
             placeholder={t("team.requestPlaceholder")}
             disabled={stage.kind === "planning"}

@@ -2,7 +2,6 @@
 //! it declared with what its branch actually changed.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use crate::plan::Check;
@@ -23,13 +22,7 @@ pub enum Outcome {
 }
 
 fn tail(s: &str) -> String {
-    let s = s.trim();
-    let start = s
-        .char_indices()
-        .rev()
-        .nth(OUTPUT_TAIL)
-        .map_or(0, |(i, _)| i);
-    s[start..].to_owned()
+    crate::pty::tail(s, OUTPUT_TAIL)
 }
 
 /// Run `checks` in order inside `worktree` (which must be inside `root`); stop at the first
@@ -53,10 +46,7 @@ pub fn run_checks(checks: &[Check], root: &Path, worktree: &Path) -> Outcome {
             Ok(s) => s,
             Err(e) => return fail(e.to_string()),
         };
-        let mut cmd = Command::new(&spec.program);
-        for k in &spec.env_remove {
-            cmd.env_remove(k);
-        }
+        let mut cmd = crate::pty::piped_command(&spec);
         // Checks run code the agent wrote: keep API keys and other model credentials out.
         for (k, _) in std::env::vars_os() {
             if k.to_string_lossy()
@@ -66,14 +56,7 @@ pub fn run_checks(checks: &[Check], root: &Path, worktree: &Path) -> Outcome {
                 cmd.env_remove(k);
             }
         }
-        let mut child = match cmd
-            .args(&spec.args)
-            .current_dir(&spec.cwd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => return fail(format!("could not start: {e}")),
         };

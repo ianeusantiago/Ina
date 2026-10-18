@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { smallButton } from "./ui";
+import { smallButton, panel, panelTitle, errorText } from "./ui";
 import {
   teamCleanup,
   teamPreview,
@@ -68,11 +68,9 @@ export function IntegrationBar({ planId }: { planId: number }) {
   const cleanupFailed = result?.kind === "cleanup" && result.rows.some((r) => r.error);
 
   return (
-    <section className="flex flex-col gap-1 rounded border border-line bg-panel px-3 py-2 text-xs">
+    <section className={panel}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-semibold uppercase tracking-wide text-muted">
-          {t("integration.title")}
-        </span>
+        <span className={panelTitle}>{t("integration.title")}</span>
         <button className={button} disabled={busy} onClick={() => void status()}>
           {t("integration.status")}
         </button>
@@ -128,7 +126,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
         </div>
       )}
       {error && (
-        <p role="alert" className="break-words text-red-400">
+        <p role="alert" className={errorText}>
           {error}
         </p>
       )}

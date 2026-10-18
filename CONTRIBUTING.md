@@ -2,7 +2,7 @@
 
 ## Setup
 
-See [README.md](README.md#requirements) (English) or [README.pt-BR.md](README.pt-BR.md#requisitos) (português).
+See [README.en.md](README.en.md#requirements) (English) or [README.md](README.md#requisitos) (português).
 
 ## Rules / Regras
 

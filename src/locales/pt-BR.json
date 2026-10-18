@@ -51,7 +51,8 @@
     "blocked": "Bloqueada: um pré-requisito falhou",
     "verify": "Verificação",
     "noVerify": "nenhuma (fica como não verificada)",
-    "verifyNote": "Ao aprovar, você autoriza o INA a rodar estes comandos no worktree de cada agente."
+    "verifyNote": "Ao aprovar, você autoriza o INA a rodar estes comandos no worktree de cada agente.",
+    "resize": "Redimensionar painéis (arraste ou setas)"
   },
   "integration": {
     "title": "Integração",
