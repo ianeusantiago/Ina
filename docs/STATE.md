@@ -1,6 +1,17 @@
 # INA — Estado
 
-**Fase atual:** 1 (MVP) concluída (passos 1–10). Próximo: planejar a Fase 2.
+**Fase atual:** 2 em andamento (pausa 2026-10-18).
+
+## Fase 2 — feito (commitado até b0a00cb)
+Recuperação no startup, agendador por dependências, mensagens estruturadas (outbox/inbox), verificação de resultados, prévia de integração (merge-tree) e reexecução com previousAttempt.
+
+## Em andamento (commit "wip: pausa", NÃO verificado)
+23 arquivos alterados (backend: lib/messages/plan/pty/store/tasks/verify/worktree; UI: painéis, i18n) + novos: e2e/ (Playwright), playwright.config.ts, ui.ts, usePolled.ts.
+
+## Próximos passos
+1. Rodar testes (cargo test, clippy, tsc/eslint, Vitest, Playwright) sobre o wip e corrigir.
+2. code-review/simplify da Fase 2; atualizar docs/CHANGELOG.
+3. Integrar branch ao main (decisão do usuário).
 
 ## Feito (verificado)
 1-6. Toolchain, scaffold, PTY, policy, SQLite/workspaces.

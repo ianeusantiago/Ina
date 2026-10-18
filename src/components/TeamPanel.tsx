@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ghostButton } from "./ui";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   type TaskStatus,
@@ -95,10 +96,7 @@ function AgentTerminal({
       subtitle={subtitle}
       spawn={spawn}
       actions={
-        <button
-          className="rounded px-2 py-0.5 text-muted hover:bg-line hover:text-zinc-100"
-          onClick={onToggleMaximize}
-        >
+        <button className={ghostButton} onClick={onToggleMaximize}>
           {t(maximized ? "terminal.restore" : "terminal.maximize")}
         </button>
       }

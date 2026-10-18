@@ -126,7 +126,7 @@ export interface MessageView {
   to: string | null;
   kind: string;
   text: string;
-  status: "received" | "proposed" | "delivered" | "rejected";
+  status: "received" | "proposed" | "delivered" | "rejected" | "undelivered";
   replyTo: number | null;
   at: string;
 }
@@ -134,6 +134,8 @@ export interface MessageView {
 export const teamMessages = (planId: number) => invoke<MessageView[]>("team_messages", { planId });
 export const sendMessage = (planId: number, to: string, text: string, replyTo: number | null) =>
   invoke<MessageView[]>("team_send", { planId, to, text, replyTo });
+export const notifyAgent = (planId: number, agentId: string) =>
+  invoke<number>("message_notify", { planId, agentId });
 export const decideMessage = (planId: number, messageId: number, approve: boolean) =>
   invoke<MessageView[]>("message_decide", { planId, messageId, approve });
 

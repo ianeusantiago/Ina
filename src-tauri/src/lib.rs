@@ -142,6 +142,26 @@ async fn plan_generate(
     Ok(PlanDraft { id, plan })
 }
 
+/// Branches of `agent`'s prerequisites (what INA merged into its worktree).
+fn prerequisite_branches(team: &plan::Team, agent: &str) -> Vec<String> {
+    team.plan
+        .prerequisites(agent)
+        .into_iter()
+        .filter_map(|p| team.worktrees.get(p).map(|w| w.branch.clone()))
+        .collect()
+}
+
+/// An approved team and its workspace root.
+fn approved_team(
+    store: &Store,
+    plans: &PlanStore,
+    plan_id: u64,
+) -> Result<(plan::Team, PathBuf), String> {
+    let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
+    let root = workspace_root(store, team.workspace_id)?;
+    Ok((team, root))
+}
+
 fn workspace_root(store: &Store, id: i64) -> Result<PathBuf, String> {
     Ok(store.get_workspace(id).map_err(|e| e.to_string())?.root())
 }
@@ -283,12 +303,7 @@ async fn team_preview(
         let mut by_file: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         for (id, wt) in &team {
             let s = git.status(wt).map_err(|e| e.to_string())?;
-            let prereq_branches: Vec<String> = approved
-                .plan
-                .prerequisites(id)
-                .into_iter()
-                .filter_map(|p| approved.worktrees.get(p).map(|w| w.branch.clone()))
-                .collect();
+            let prereq_branches = prerequisite_branches(&approved, id);
             let own = git
                 .own_files(&wt.branch, &prereq_branches)
                 .map_err(|e| e.to_string())?;
@@ -358,6 +373,13 @@ async fn team_integrate(
     plan_id: u64,
 ) -> Result<Vec<IntegrateStep>, String> {
     let (git, team) = team_git(&store, &plans, plan_id)?;
+    // Teams approved before the registry existed have no rows: they are not gated.
+    let task_statuses: std::collections::HashMap<String, String> = store
+        .tasks(to_team(plan_id)?)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|t| (t.agent_id, t.status))
+        .collect();
     blocking(move || {
         if !git.root_is_clean().map_err(|e| e.to_string())? {
             return Err("workspace has uncommitted changes; commit or stash them first".into());
@@ -367,6 +389,12 @@ async fn team_integrate(
             let s = git.status(wt).map_err(|e| e.to_string())?;
             if s.dirty {
                 return Err(format!("agent {id} has uncommitted changes"));
+            }
+            let done = task_statuses
+                .get(id)
+                .is_none_or(|st| st == TaskStatus::Done.as_str());
+            if s.ahead > 0 && !done {
+                return Err(format!("agent {id} is not done (verified) yet"));
             }
             statuses.push(s);
         }
@@ -725,8 +753,12 @@ fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: St
             .and_then(|team| {
                 let root = workspace_root(&store, team.workspace_id)?;
                 let why = format!("timed out after {} min", AGENT_TIMEOUT.as_secs() / 60);
-                registry(&store, &root, plan_id, &team.plan)?
-                    .transition(&agent, TaskStatus::Failed, None, Some(&why))
+                let reg = registry(&store, &root, plan_id, &team.plan)?;
+                // Already reported (e.g. verifying): the result is in, nothing to time out.
+                if reg.status(&agent).map_err(|e| e.to_string())? != Some(TaskStatus::Running) {
+                    return Ok(false);
+                }
+                reg.transition(&agent, TaskStatus::Failed, None, Some(&why))
                     .map_err(|e| e.to_string())
             });
         if let Err(e) = failed {
@@ -775,7 +807,11 @@ fn agent_exited(
         };
         done.map_err(|e| e.to_string())
     });
-    if let Err(e) = result.and_then(|_| kick_verifications(app, plan_id)) {
+    let kicked = result.and_then(|_| {
+        let rows = store.tasks(to_team(plan_id)?).map_err(|e| e.to_string())?;
+        kick_verifications(app, plan_id, &team, &rows)
+    });
+    if let Err(e) = kicked {
         eprintln!("task {agent}: recording exit failed: {e}");
     }
 }
@@ -795,11 +831,14 @@ struct TaskView {
 
 /// Start verification for every `verifying` task of a team that is not being verified yet.
 /// Called from the poll, on exit and after a restart, so a lost run is simply restarted.
-fn kick_verifications(app: &tauri::AppHandle, plan_id: u64) -> Result<(), String> {
+fn kick_verifications(
+    app: &tauri::AppHandle,
+    plan_id: u64,
+    team: &plan::Team,
+    rows: &[store::TaskRow],
+) -> Result<(), String> {
     static RUNNING: std::sync::Mutex<Vec<(u64, String)>> = std::sync::Mutex::new(Vec::new());
-    let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
-    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-    for t in store.tasks(to_team(plan_id)?).map_err(|e| e.to_string())? {
+    for t in rows {
         if t.status != TaskStatus::Verifying.as_str() {
             continue;
         }
@@ -845,13 +884,35 @@ fn verify_agent(
         .flatten()
         .map(|r| r.files)
         .unwrap_or_default();
-    let changed = git_for(&store, team.workspace_id)?
-        .status(wt)
-        .map_err(|e| e.to_string())?
-        .files;
+    let git = git_for(&store, team.workspace_id)?;
+    let prereqs = prerequisite_branches(team, agent_id);
+    let changed = git
+        .own_files(&wt.branch, &prereqs)
+        .map_err(|e| e.to_string())?;
     let mismatch = verify::files_mismatch(&declared, &changed);
     let reg = registry(&store, &root, plan_id, &team.plan)?;
-    let (to, mut detail) = match verify::run_checks(&agent.verify, &root, &wt.path) {
+    // Checks see exactly what was committed (what integration would merge), not loose files.
+    let snap = root
+        .join(tasks::INA_DIR)
+        .join("verify")
+        .join(format!("{}-{agent_id}", reg.team));
+    if snap.exists() {
+        let _ = git.remove_snapshot(&snap); // left over from an interrupted run
+    }
+    let outcome = match git.snapshot(&wt.branch, &snap) {
+        Ok(()) => {
+            let o = verify::run_checks(&agent.verify, &root, &snap);
+            if let Err(e) = git.remove_snapshot(&snap) {
+                eprintln!("verify {agent_id}: removing snapshot failed: {e}");
+            }
+            o
+        }
+        Err(e) => verify::Outcome::Failed {
+            check: "checkout".into(),
+            detail: e.to_string(),
+        },
+    };
+    let (to, mut detail) = match outcome {
         verify::Outcome::Passed(0) => (TaskStatus::Done, "unverified: no checks".to_string()),
         verify::Outcome::Passed(n) => (TaskStatus::Done, format!("verified: {n} check(s) passed")),
         verify::Outcome::Failed { check, detail } => (
@@ -891,6 +952,8 @@ const MSG_RECEIVED: &str = "received";
 const MSG_PROPOSED: &str = "proposed";
 const MSG_DELIVERED: &str = "delivered";
 const MSG_REJECTED: &str = "rejected";
+/// Stored but its inbox file could not be written.
+const MSG_UNDELIVERED: &str = "undelivered";
 
 /// Ingest new outbox files (orchestrator in the root, agents in their worktrees) and return
 /// the team's messages. Orchestrator instructions wait as `proposed` for the user.
@@ -898,8 +961,7 @@ const MSG_REJECTED: &str = "rejected";
 async fn team_messages(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<MessageView>, String> {
     blocking(move || {
         let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
-        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-        let root = workspace_root(&store, team.workspace_id)?;
+        let (team, root) = approved_team(&store, &plans, plan_id)?;
         let reg = registry(&store, &root, plan_id, &team.plan)?;
         let agents: Vec<&str> = team.plan.agents.iter().map(|a| a.id.as_str()).collect();
         let mut sources: Vec<(&str, &std::path::Path)> = vec![(plan::ORCHESTRATOR_ID, &root)];
@@ -959,27 +1021,41 @@ fn list_messages(store: &Store, team: i64) -> Result<Vec<MessageView>, String> {
         .collect())
 }
 
-/// Write a message to an agent's inbox and point its live terminal(s) at it.
+/// Write a message to an agent's inbox. Its terminal is not touched: typing into a session
+/// that shows a permission prompt could answer it, so the user triggers the notice.
 fn deliver(
-    pty: &PtyManager,
-    plans: &PlanStore,
     team: &plan::Team,
-    plan_id: u64,
-    msg: (i64, &str, &str, messages::Kind, &str, Option<i64>),
+    id: i64,
+    from: &str,
+    to: &str,
+    kind: messages::Kind,
+    text: &str,
+    reply_to: Option<i64>,
 ) -> Result<(), String> {
-    let (id, from, to, kind, text, reply_to) = msg;
     let wt = team.worktrees.get(to).ok_or("unknown agent")?;
-    let rel = messages::write_inbox(&wt.path, id, from, kind, text, reply_to)
-        .map_err(|e| e.to_string())?;
-    // If no session is live the message waits; the agent's prompt points at the inbox.
-    for s in plans.agent_sessions(plan_id, to) {
-        if pty.is_running(&s)
-            && let Err(e) = pty.write(&s, messages::notice(&rel).as_bytes())
-        {
-            eprintln!("notify {to}: {e}");
+    messages::write_inbox(&wt.path, id, from, kind, text, reply_to)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Tell an agent's live terminal(s) to read its inbox (one fixed line, user-triggered).
+/// Returns how many sessions were notified.
+#[tauri::command]
+fn message_notify(
+    pty: State<'_, PtyManager>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+    agent_id: String,
+) -> Result<usize, String> {
+    let mut n = 0;
+    for s in plans.agent_sessions(plan_id, &agent_id) {
+        if pty.is_running(&s) {
+            pty.write(&s, messages::NOTICE.as_bytes())
+                .map_err(|e| e.to_string())?;
+            n += 1;
         }
     }
-    Ok(())
+    Ok(n)
 }
 
 /// The user answers or instructs an agent directly.
@@ -992,13 +1068,9 @@ async fn team_send(
     reply_to: Option<i64>,
 ) -> Result<Vec<MessageView>, String> {
     blocking(move || {
-        let (pty, store, plans) = (
-            app.state::<PtyManager>(),
-            app.state::<Store>(),
-            app.state::<PlanStore>(),
-        );
+        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let text = text.trim();
-        if text.is_empty() || text.len() > 4000 {
+        if text.is_empty() || text.len() > messages::MAX_TEXT {
             return Err("message is empty or too long".into());
         }
         let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
@@ -1012,19 +1084,17 @@ async fn team_send(
                     to: Some(&to),
                     kind: messages::Kind::Reply.as_str(),
                     text,
-                    status: MSG_DELIVERED,
+                    status: MSG_UNDELIVERED,
                     reply_to,
                 },
             )
             .map_err(|e| e.to_string())?;
+        // Marked delivered only once the inbox file exists.
         let reply = messages::Kind::Reply;
-        deliver(
-            &pty,
-            &plans,
-            &team,
-            plan_id,
-            (id, "user", &to, reply, text, reply_to),
-        )?;
+        deliver(&team, id, "user", &to, reply, text, reply_to)?;
+        store
+            .update_message_status(team_id, id, MSG_UNDELIVERED, MSG_DELIVERED)
+            .map_err(|e| e.to_string())?;
         list_messages(&store, team_id)
     })
     .await
@@ -1039,11 +1109,7 @@ async fn message_decide(
     approve: bool,
 ) -> Result<Vec<MessageView>, String> {
     blocking(move || {
-        let (pty, store, plans) = (
-            app.state::<PtyManager>(),
-            app.state::<Store>(),
-            app.state::<PlanStore>(),
-        );
+        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
         let team_id = to_team(plan_id)?;
         let msg = store
@@ -1052,23 +1118,26 @@ async fn message_decide(
             .into_iter()
             .find(|m| m.id == message_id && m.status == MSG_PROPOSED)
             .ok_or("no such pending proposal")?;
+        // Deliver first: a failed delivery leaves the proposal pending, so it can be retried.
+        if approve {
+            let target = msg.to_agent.as_deref().ok_or("instruction has no target")?;
+            let kind = messages::Kind::Instruction;
+            deliver(
+                &team,
+                msg.id,
+                &msg.from_agent,
+                target,
+                kind,
+                &msg.text,
+                None,
+            )?;
+        }
         let to = if approve { MSG_DELIVERED } else { MSG_REJECTED };
         if !store
             .update_message_status(team_id, message_id, MSG_PROPOSED, to)
             .map_err(|e| e.to_string())?
         {
             return Err("proposal was already decided".into());
-        }
-        if approve {
-            let target = msg.to_agent.as_deref().ok_or("instruction has no target")?;
-            let kind = messages::Kind::Instruction;
-            deliver(
-                &pty,
-                &plans,
-                &team,
-                plan_id,
-                (msg.id, &msg.from_agent, target, kind, &msg.text, None),
-            )?;
         }
         list_messages(&store, team_id)
     })
@@ -1080,8 +1149,7 @@ async fn message_decide(
 async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
     blocking(move || {
         let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
-        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-        let root = workspace_root(&store, team.workspace_id)?;
+        let (team, root) = approved_team(&store, &plans, plan_id)?;
         let reg = registry(&store, &root, plan_id, &team.plan)?;
         let mut errors = std::collections::HashMap::new();
         for (agent, wt) in &team.worktrees {
@@ -1089,11 +1157,9 @@ async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>
                 errors.insert(agent.clone(), e.to_string());
             }
         }
-        kick_verifications(&app, plan_id)?;
-        store
-            .tasks(reg.team)
-            .map_err(|e| e.to_string())?
-            .into_iter()
+        let rows = store.tasks(reg.team).map_err(|e| e.to_string())?;
+        kick_verifications(&app, plan_id, &team, &rows)?;
+        rows.into_iter()
             .map(|t| {
                 Ok(TaskView {
                     status: TaskStatus::parse(&t.status).map_err(|e| e.to_string())?,
@@ -1148,7 +1214,6 @@ fn workspace_remove(store: State<'_, Store>, id: i64) -> Result<(), String> {
     store.remove_workspace(id).map_err(|e| e.to_string())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// No PTY survives a restart: finish every task still marked running with the result it left,
 /// or as lost.
 fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
@@ -1167,6 +1232,7 @@ fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -1202,7 +1268,8 @@ pub fn run() {
             team_messages,
             team_send,
             message_decide,
-            team_preview
+            team_preview,
+            message_notify
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

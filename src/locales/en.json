@@ -81,7 +81,8 @@
       "skipped": "no new commits",
       "conflict": "predicted conflict in {{files}}; integration would stop here",
       "notReached": "would not be attempted (stops at the conflict)",
-      "overlap": "{{file}} was changed by {{agents}}: review how they combine"
+      "overlap": "{{file}} was changed by {{agents}}: review how they combine",
+      "unavailable": "Preview unavailable ({{error}}). You can still integrate."
     }
   },
   "tasks": {
@@ -138,7 +139,12 @@
       "received": "received",
       "proposed": "awaiting approval",
       "delivered": "delivered",
-      "rejected": "rejected"
-    }
+      "rejected": "rejected",
+      "undelivered": "undelivered"
+    },
+    "notify": "Notify terminal",
+    "notifyHint": "Types one fixed line into the agent's terminal asking it to read .ina/inbox/. Use it when the agent is not showing a permission prompt.",
+    "notified": "Notice sent to the terminal.",
+    "notOpen": "The agent's terminal is not open; the message waits in its inbox."
   }
 }

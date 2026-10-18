@@ -82,6 +82,7 @@ impl TaskStatus {
                 | (Blocked, Pending)
                 | (Running, Verifying | Failed | Blocked | Cancelled)
                 | (Verifying, Done | Failed | Cancelled)
+                | (Blocked, Verifying | Failed)
                 | (Done | Failed | Blocked | Cancelled, Running)
         )
     }
@@ -365,9 +366,7 @@ impl Registry<'_> {
     fn blocked_by_prerequisite(&self, agent: &str) -> Result<bool, TaskError> {
         Ok(self
             .store
-            .tasks(self.team)?
-            .into_iter()
-            .find(|t| t.agent_id == agent)
+            .task(self.team, agent)?
             .and_then(|t| t.detail)
             .is_some_and(|d| d.starts_with(PREREQ_BLOCK)))
     }
@@ -398,11 +397,17 @@ impl Registry<'_> {
 
     /// Apply the agent's `result.json` if it is running and wrote one. An invalid file is
     /// returned as an error and leaves the status unchanged, since the agent may still fix it.
+    /// Also for a task the agent itself reported blocked: after an answer it may continue in
+    /// the same session and report again.
     pub fn apply_result(&self, agent: &str, worktree: &Path) -> Result<bool, TaskError> {
-        if self.status(agent)? != Some(TaskStatus::Running) {
+        let status = self.status(agent)?;
+        if !matches!(status, Some(TaskStatus::Running | TaskStatus::Blocked)) {
             return Ok(false);
         }
         match read_result(worktree)? {
+            Some(r) if status == Some(TaskStatus::Blocked) && r.status == ResultStatus::Blocked => {
+                Ok(false)
+            }
             Some(r) => self.apply(agent, &r),
             None => Ok(false),
         }
@@ -563,6 +568,11 @@ mod tests {
         write_result(&wt, r#"{"status":"blocked","summary":"needs ui"}"#);
         assert!(reg.apply_result("api", &wt).unwrap());
         assert_eq!(reg.status("api").unwrap(), Some(TaskStatus::Blocked));
+        // Still blocked: nothing to do. Answered and done in the same session: it continues.
+        assert!(!reg.apply_result("api", &wt).unwrap());
+        write_result(&wt, r#"{"status":"done","summary":"unblocked"}"#);
+        assert!(reg.apply_result("api", &wt).unwrap());
+        assert_eq!(reg.status("api").unwrap(), Some(TaskStatus::Verifying));
 
         // Exit without result → failed; cancel wins over a later exit.
         reg.transition("ui", TaskStatus::Running, None, None)
@@ -581,7 +591,7 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap()["status"].to_string())
             .collect();
-        assert_eq!(statuses.len(), 8, "{log}");
+        assert_eq!(statuses.len(), 9, "{log}");
         assert!(log.contains("exited without result.json"));
     }
 

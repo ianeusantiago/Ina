@@ -1,7 +1,6 @@
 //! Result verification: run an agent's approved checks in its worktree and compare the files
 //! it declared with what its branch actually changed.
 
-use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -58,6 +57,15 @@ pub fn run_checks(checks: &[Check], root: &Path, worktree: &Path) -> Outcome {
         for k in &spec.env_remove {
             cmd.env_remove(k);
         }
+        // Checks run code the agent wrote: keep API keys and other model credentials out.
+        for (k, _) in std::env::vars_os() {
+            if k.to_string_lossy()
+                .to_ascii_uppercase()
+                .starts_with("ANTHROPIC")
+            {
+                cmd.env_remove(k);
+            }
+        }
         let mut child = match cmd
             .args(&spec.args)
             .current_dir(&spec.cwd)
@@ -69,31 +77,27 @@ pub fn run_checks(checks: &[Check], root: &Path, worktree: &Path) -> Outcome {
             Ok(c) => c,
             Err(e) => return fail(format!("could not start: {e}")),
         };
-        let drain = |mut r: Box<dyn Read + Send>| {
-            std::thread::spawn(move || {
-                let mut b = Vec::new();
-                let _ = r.read_to_end(&mut b);
-                b
-            })
+        let (status, output) = match crate::pty::wait_output(&mut child, CHECK_TIMEOUT) {
+            Ok(r) => r,
+            Err(e) => return fail(e.to_string()),
         };
-        let out = drain(Box::new(child.stdout.take().expect("piped")));
-        let err = drain(Box::new(child.stderr.take().expect("piped")));
-        let status = crate::pty::wait_timeout(&mut child, CHECK_TIMEOUT);
-        let mut text = out.join().unwrap_or_default();
-        text.extend(err.join().unwrap_or_default());
-        let text = String::from_utf8_lossy(&text);
+        let mut bytes = output.stdout;
+        bytes.extend(output.stderr);
+        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        if !output.complete {
+            text.push_str("\n[output incomplete: a child process kept it open]");
+        }
         match status {
-            Ok(Some(s)) if s.success() => {}
-            Ok(Some(s)) => {
+            Some(s) if s.success() => {}
+            Some(s) => {
                 return fail(format!("exit {}: {}", s.code().unwrap_or(-1), tail(&text)));
             }
-            Ok(None) => {
+            None => {
                 return fail(format!(
                     "timed out after {} min",
                     CHECK_TIMEOUT.as_secs() / 60
                 ));
             }
-            Err(e) => return fail(e.to_string()),
         }
     }
     Outcome::Passed(checks.len())

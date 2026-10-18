@@ -2,7 +2,26 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — Phase 1 (MVP)
+## [Unreleased] — Phase 2 (reliable orchestration)
+
+### Added
+- Startup recovery: running tasks whose session was lost are finished with their result or as lost.
+- Dependency-aware scheduler: prerequisites (and sequential mode) enforced, prerequisite branches merged into the dependent's worktree, blocked/unblocked dependents, optional auto-start, 60-minute agent timeout.
+- Structured messages: `.ina/outbox/` → validated, stored and logged; answers and approved orchestrator instructions delivered to `.ina/inbox/` with a fixed terminal notice; Messages panel.
+- Result verification: per-agent checks approved with the plan (`cargo`/`node`/`python`/`pytest`), new `verifying` status, declared vs changed files.
+- Integration preview with `git merge-tree` (no refs or files touched) and overlapping-file warnings.
+- `previousAttempt` in `task.json` when a task is re-run.
+- Playwright E2E attached to the app over CDP; opt-in full team flow.
+
+### Security
+- Orchestrator writes: outbox pre-allowed; agent worktrees, `.git/` and the event log denied.
+- Checks run on a clean checkout of the committed branch, without `ANTHROPIC_*` variables, and cannot hang on inherited pipes.
+- Terminal notices are user-triggered and contain no digits; integration only merges done agents.
+
+### Changed
+- The orchestrator starts in Claude Code's default permission mode and may write (each write asks you) so it can propose instructions; Edit and git write commands stay denied.
+
+## Phase 1 (MVP)
 
 ### Added
 - Tauri 2 + React + TypeScript app with real PTY terminals (ConPTY via portable-pty) and xterm.js.

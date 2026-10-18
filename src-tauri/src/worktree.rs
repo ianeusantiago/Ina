@@ -254,6 +254,19 @@ impl Git {
         Ok(out)
     }
 
+    /// Check out `branch` (detached) at `path`, a throwaway copy of exactly what was committed.
+    pub fn snapshot(&self, branch: &str, path: &Path) -> Result<(), WorktreeError> {
+        let p = path.to_string_lossy().to_string();
+        self.run(&["worktree", "add", "--detach", &p, branch])
+            .map(|_| ())
+    }
+
+    /// Remove a snapshot made by `snapshot` (INA-owned, so forced).
+    pub fn remove_snapshot(&self, path: &Path) -> Result<(), WorktreeError> {
+        let p = path.to_string_lossy().to_string();
+        self.run(&["worktree", "remove", "--force", &p]).map(|_| ())
+    }
+
     /// Files touched by `branch`'s own commits: not in HEAD, not from merges, not from the
     /// `exclude`d branches (e.g. prerequisites INA merged into it).
     pub fn own_files(
@@ -517,6 +530,20 @@ mod tests {
         // Uncommitted work is never discarded.
         assert!(g.cleanup(&team[1], false).is_err());
         assert!(team[1].path.join("wip.txt").exists());
+    }
+
+    #[test]
+    fn snapshot_has_only_committed_files() {
+        let g = repo("snapshot", true);
+        identity(&g);
+        let team = g.create_team("r", &["a"]).unwrap();
+        commit_file(&g, &team[0], "kept.txt", "k");
+        fs::write(team[0].path.join("loose.txt"), "x").unwrap();
+        let snap = g.root.join(".ina").join("verify-a");
+        g.snapshot(&team[0].branch, &snap).unwrap();
+        assert!(snap.join("kept.txt").exists() && !snap.join("loose.txt").exists());
+        g.remove_snapshot(&snap).unwrap();
+        assert!(!snap.exists());
     }
 
     #[test]

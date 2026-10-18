@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { smallButton } from "./ui";
 import {
   teamCleanup,
   teamPreview,
@@ -18,8 +19,7 @@ type Result =
 
 type Action = "integrate" | "cleanup" | "forceCleanup";
 
-const button =
-  "rounded border border-line px-2 py-0.5 text-xs hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
+const button = smallButton;
 
 /** Branch status, controlled integration and cleanup for an approved team. */
 export function IntegrationBar({ planId }: { planId: number }) {
@@ -52,10 +52,12 @@ export function IntegrationBar({ planId }: { planId: number }) {
     setError(null);
     try {
       setPreview(await teamPreview(planId));
-      setConfirm("integrate");
     } catch (e) {
-      setError(String(e));
+      // Without a preview (e.g. git older than 2.38) integration still works; say so.
+      setPreview(null);
+      setError(t("integration.preview.unavailable", { error: String(e) }));
     } finally {
+      setConfirm("integrate");
       setBusy(false);
     }
   };

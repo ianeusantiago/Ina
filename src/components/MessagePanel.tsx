@@ -1,47 +1,39 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
   decideMessage,
+  notifyAgent,
   sendMessage,
   teamMessages,
   type AgentSpec,
   type MessageView,
 } from "../lib/team";
+import { usePolled } from "../lib/usePolled";
+import { smallButton as button } from "./ui";
 
-const POLL_MS = 5000;
 const SHOWN = 30;
-const button =
-  "rounded border border-line px-2 py-0.5 hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
+const NONE: MessageView[] = [];
 
 /** Messages between agents, orchestrator and user; orchestrator instructions need approval. */
 export function MessagePanel({ planId, agents }: { planId: number; agents: AgentSpec[] }) {
   const { t } = useTranslation();
-  const [messages, setMessages] = useState<MessageView[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => teamMessages(planId), [planId]);
+  const { data: messages, error, setError, run } = usePolled(load, NONE);
   const [busy, setBusy] = useState(false);
   const [to, setTo] = useState(agents[0]?.id ?? "");
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<MessageView | null>(null);
-
-  const run = useCallback(async (action: () => Promise<MessageView[]>) => {
+  const [notified, setNotified] = useState<string | null>(null);
+  // Typing into a terminal could answer a prompt it shows, so the user decides when.
+  const notify = async () => {
     try {
-      setMessages(await action());
-      setError(null);
+      const n = await notifyAgent(planId, to);
+      setNotified(t(n > 0 ? "messages.notified" : "messages.notOpen"));
     } catch (e) {
       setError(String(e));
     }
-  }, []);
-
-  useEffect(() => {
-    const poll = () => void run(() => teamMessages(planId));
-    const first = setTimeout(poll, 0);
-    const timer = setInterval(poll, POLL_MS);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [planId, run]);
+  };
 
   const act = async (action: () => Promise<MessageView[]>) => {
     setBusy(true);
@@ -142,7 +134,17 @@ export function MessagePanel({ planId, agents }: { planId: number; agents: Agent
         <button className={button} type="submit" disabled={busy || !text.trim() || !to}>
           {t("messages.send")}
         </button>
+        <button
+          className={button}
+          type="button"
+          disabled={!to}
+          title={t("messages.notifyHint")}
+          onClick={() => void notify()}
+        >
+          {t("messages.notify")}
+        </button>
       </form>
+      {notified && <p className="text-muted">{notified}</p>}
     </section>
   );
 }

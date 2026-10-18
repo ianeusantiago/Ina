@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ghostButton } from "./ui";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { killPty, resizePty, writePty, type Spawner } from "../lib/pty";
@@ -95,14 +96,11 @@ export function TerminalPane({
         </span>
         <span className="flex-1" />
         {actions}
-        <button
-          className="rounded px-2 py-0.5 text-muted hover:bg-line hover:text-zinc-100"
-          onClick={() => setGeneration((g) => g + 1)}
-        >
+        <button className={ghostButton} onClick={() => setGeneration((g) => g + 1)}>
           {t("terminal.restart")}
         </button>
         <button
-          className="rounded px-2 py-0.5 text-muted hover:bg-line hover:text-zinc-100 disabled:opacity-40"
+          className={ghostButton}
           disabled={status.kind !== "running"}
           onClick={() => sessionId.current && killPty(sessionId.current).catch(report)}
         >

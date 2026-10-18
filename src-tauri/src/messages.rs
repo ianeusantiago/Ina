@@ -14,7 +14,9 @@ use crate::tasks::INA_DIR;
 const OUTBOX: &str = "outbox";
 const INBOX: &str = "inbox";
 const MAX_MESSAGE_BYTES: u64 = 16 * 1024;
-const MAX_TEXT: usize = 4000;
+pub const MAX_TEXT: usize = 4000;
+/// Files younger than this may still be being written; they wait for the next poll.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
 /// Files ingested per poll, so a runaway writer cannot stall INA.
 const MAX_PER_POLL: usize = 50;
 
@@ -122,18 +124,34 @@ pub fn ingest(
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let message = match fs::metadata(&path) {
-            Ok(m) if m.len() > MAX_MESSAGE_BYTES => {
-                Err(format!("larger than {MAX_MESSAGE_BYTES} bytes"))
-            }
-            Ok(_) => fs::read_to_string(&path)
+        let meta = match fs::metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue, // vanished or locked: retried next poll
+        };
+        let fresh = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_none_or(|age| age < SETTLE);
+        if fresh {
+            continue;
+        }
+        let message = if meta.len() > MAX_MESSAGE_BYTES {
+            Err(format!("larger than {MAX_MESSAGE_BYTES} bytes"))
+        } else {
+            fs::read_to_string(&path)
                 .map_err(|e| e.to_string())
-                .and_then(|t| parse_outgoing(&t, from_orchestrator, agents)),
-            Err(e) => Err(e.to_string()),
+                .and_then(|t| parse_outgoing(&t, from_orchestrator, agents))
         };
         let dest = outbox.join(if message.is_ok() { "done" } else { "rejected" });
-        fs::create_dir_all(&dest)?;
-        fs::rename(&path, dest.join(&name))?;
+        // A file that cannot be moved (e.g. still open) stays for the next poll; it is only
+        // returned once it was moved, so it is stored exactly once.
+        if fs::create_dir_all(&dest)
+            .and_then(|_| fs::rename(&path, dest.join(&name)))
+            .is_err()
+        {
+            continue;
+        }
         out.push(Ingested {
             file: name,
             message,
@@ -177,10 +195,9 @@ pub fn write_inbox(
     Ok(format!("{INA_DIR}/{INBOX}/{name}"))
 }
 
-/// The only text INA types into an agent's terminal: a pointer, never the message itself.
-pub fn notice(inbox_path: &str) -> String {
-    format!("INA: new message in {inbox_path}. Read it and continue.\r")
-}
+/// The only text INA types into an agent's terminal, and only when the user asks: no digits
+/// or message text, so it cannot pick an option in a prompt the agent is showing.
+pub const NOTICE: &str = "INA: you have new messages in .ina/inbox/. Read them and continue.\r";
 
 #[cfg(test)]
 mod tests {
@@ -240,6 +257,11 @@ mod tests {
         .unwrap();
         fs::write(outbox.join("2.json"), "nope").unwrap();
         fs::write(outbox.join("note.txt"), "ignored").unwrap();
+        assert!(
+            ingest(&dir, false, &["api"]).unwrap().is_empty(),
+            "fresh files wait"
+        );
+        std::thread::sleep(SETTLE + std::time::Duration::from_millis(200));
         let got = ingest(&dir, false, &["api"]).unwrap();
         assert_eq!(got.len(), 2);
         assert!(got[0].message.is_ok() && got[1].message.is_err());
@@ -252,6 +274,7 @@ mod tests {
     fn inbox_and_notice() {
         let dir = tempdir("inbox");
         let rel = write_inbox(&dir, 9, "user", Kind::Reply, "use sqlite", Some(3)).unwrap();
+        assert!(!NOTICE.chars().any(|c| c.is_ascii_digit()));
         assert_eq!(rel, ".ina/inbox/9.json");
         let v: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(&rel)).unwrap()).unwrap();
@@ -259,6 +282,5 @@ mod tests {
             (v["type"].as_str(), v["replyTo"].as_i64()),
             (Some("reply"), Some(3))
         );
-        assert!(!notice(&rel).contains("sqlite"));
     }
 }

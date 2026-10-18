@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
+import { usePolled } from "../lib/usePolled";
 import { teamTasks, type AgentSpec, type TaskStatus, type TaskView } from "../lib/team";
-
-const POLL_MS = 5000;
 
 const tone: Record<TaskStatus, string> = {
   pending: "text-muted",
@@ -18,30 +17,13 @@ const tone: Record<TaskStatus, string> = {
 /** SQLite `datetime('now')` is UTC without a zone marker. */
 const localTime = (utc: string) => new Date(`${utc.replace(" ", "T")}Z`).toLocaleString();
 
+const NONE: TaskView[] = [];
+
 /** Polls the team's task registry (status comes from the backend: process + result.json). */
 export function useTeamTasks(planId: number) {
-  const [tasks, setTasks] = useState<TaskView[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setTasks(await teamTasks(planId));
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, [planId]);
-
-  useEffect(() => {
-    const first = setTimeout(() => void refresh(), 0);
-    const timer = setInterval(() => void refresh(), POLL_MS);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [refresh]);
-
-  return { tasks, error, refresh };
+  const load = useCallback(() => teamTasks(planId), [planId]);
+  const { data: tasks, error, run } = usePolled(load, NONE);
+  return { tasks, error, refresh: () => run() };
 }
 
 export function TaskPanel({

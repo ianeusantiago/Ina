@@ -3,7 +3,6 @@
 //! before any agent session is spawned.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -345,10 +344,13 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
 
 /// Tools the orchestrator may not use: it reviews, the user integrates through INA.
 const ORCHESTRATOR_DENIED: &[&str] = &[
-    // Write stays allowed for `.ina/outbox/` proposals; Claude Code asks before each write in
-    // the default permission mode, which the orchestrator is forced into.
+    // Write stays possible only with your approval (default permission mode) and never in the
+    // agents' worktrees, git internals or INA's event log; `.ina/outbox/` is pre-allowed below.
     "Edit",
     "NotebookEdit",
+    "Edit(.ina/worktrees/**)",
+    "Edit(.git/**)",
+    "Edit(.ina/events.jsonl)",
     "Bash(git merge:*)",
     "Bash(git rebase:*)",
     "Bash(git reset:*)",
@@ -365,6 +367,8 @@ pub fn orchestrator_args(prompt: String) -> Vec<String> {
         prompt,
         "--permission-mode".to_string(),
         "default".to_string(),
+        "--allowedTools".to_string(),
+        "Edit(.ina/outbox/**)".to_string(),
         "--disallowedTools".to_string(),
     ];
     args.extend(ORCHESTRATOR_DENIED.iter().map(|s| s.to_string()));
@@ -428,23 +432,12 @@ pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| fail(format!("spawn: {e}")))?;
-    let drain = |mut r: Box<dyn Read + Send>| {
-        std::thread::spawn(move || {
-            let mut s = String::new();
-            r.read_to_string(&mut s).map(|_| s)
-        })
-    };
-    let out = drain(Box::new(child.stdout.take().expect("piped")));
-    let err = drain(Box::new(child.stderr.take().expect("piped")));
-    let status = crate::pty::wait_timeout(&mut child, PLANNER_TIMEOUT)
-        .map_err(|e| fail(e.to_string()))?
-        .ok_or_else(|| fail("timed out".into()))?;
-    let stdout = out
-        .join()
-        .map_err(|_| fail("stdout reader panicked".into()))?;
-    let stdout = stdout.map_err(|e| fail(format!("read stdout: {e}")))?;
+    let (status, output) =
+        crate::pty::wait_output(&mut child, PLANNER_TIMEOUT).map_err(|e| fail(e.to_string()))?;
+    let status = status.ok_or_else(|| fail("timed out".into()))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if !status.success() && stdout.trim().is_empty() {
-        let stderr = err.join().ok().and_then(Result::ok).unwrap_or_default();
+        let stderr = String::from_utf8_lossy(&output.stderr);
         let tail: String = stderr
             .chars()
             .rev()

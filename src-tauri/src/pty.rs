@@ -70,6 +70,57 @@ pub struct PtyManager {
 /// Bound for `stopped_early`: ids are never reused, so stale entries are only a small leak.
 const MAX_STOPPED_EARLY: usize = 1024;
 
+/// Collected output of a child process. `complete` is false when a grandchild kept a pipe
+/// open past the grace period (the output is then partial, but nothing hangs).
+pub struct Output {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub complete: bool,
+}
+
+/// Wait for a piped `child` up to `limit` (killing it on timeout) and collect its output.
+/// Returns `None` as the status on timeout.
+pub fn wait_output(
+    child: &mut std::process::Child,
+    limit: std::time::Duration,
+) -> std::io::Result<(Option<std::process::ExitStatus>, Output)> {
+    let drain = |r: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut b = Vec::new();
+            if let Some(mut r) = r {
+                let _ = r.read_to_end(&mut b);
+            }
+            let _ = tx.send(b);
+        });
+        rx
+    };
+    let out = drain(
+        child
+            .stdout
+            .take()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+    );
+    let err = drain(
+        child
+            .stderr
+            .take()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+    );
+    let status = wait_timeout(child, limit)?;
+    let grace = std::time::Duration::from_secs(5);
+    let (o, e) = (out.recv_timeout(grace), err.recv_timeout(grace));
+    let complete = o.is_ok() && e.is_ok();
+    Ok((
+        status,
+        Output {
+            stdout: o.unwrap_or_default(),
+            stderr: e.unwrap_or_default(),
+            complete,
+        },
+    ))
+}
+
 /// Wait for `child` up to `limit`; on timeout kill and reap it and return `None`.
 pub fn wait_timeout(
     child: &mut std::process::Child,

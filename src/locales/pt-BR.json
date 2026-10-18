@@ -81,7 +81,8 @@
       "skipped": "sem commits novos",
       "conflict": "conflito previsto em {{files}}; a integração pararia aqui",
       "notReached": "não seria tentado (para no conflito)",
-      "overlap": "{{file}} foi alterado por {{agents}}: revise a combinação"
+      "overlap": "{{file}} foi alterado por {{agents}}: revise a combinação",
+      "unavailable": "Prévia indisponível ({{error}}). Você ainda pode integrar."
     }
   },
   "tasks": {
@@ -138,7 +139,12 @@
       "received": "recebida",
       "proposed": "aguarda aprovação",
       "delivered": "entregue",
-      "rejected": "rejeitada"
-    }
+      "rejected": "rejeitada",
+      "undelivered": "não entregue"
+    },
+    "notify": "Avisar no terminal",
+    "notifyHint": "Digita uma linha fixa no terminal do agente pedindo que leia .ina/inbox/. Use quando ele não estiver mostrando um pedido de permissão.",
+    "notified": "Aviso enviado ao terminal.",
+    "notOpen": "O terminal do agente não está aberto; a mensagem espera no inbox."
   }
 }

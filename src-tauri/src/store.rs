@@ -322,6 +322,10 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    pub fn task(&self, team: i64, agent: &str) -> Result<Option<TaskRow>, StoreError> {
+        Ok(self.tasks(team)?.into_iter().find(|t| t.agent_id == agent))
+    }
+
     pub fn task_status(&self, team: i64, agent: &str) -> Result<Option<String>, StoreError> {
         Ok(self
             .conn()?
