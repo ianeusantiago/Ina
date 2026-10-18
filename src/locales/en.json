@@ -51,7 +51,8 @@
     "blocked": "Blocked: a prerequisite failed",
     "verify": "Verification",
     "noVerify": "none (stays unverified)",
-    "verifyNote": "Approving lets INA run these commands in each agent's worktree."
+    "verifyNote": "Approving lets INA run these commands in each agent's worktree.",
+    "resize": "Resize panels (drag or arrow keys)"
   },
   "integration": {
     "title": "Integration",

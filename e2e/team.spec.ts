@@ -31,3 +31,23 @@ test("plan, approve, verify and preview integration", async ({ app }) => {
   await expect(app.getByText("clean merge")).toBeVisible();
   await app.getByRole("button", { name: "Cancel", exact: true }).click();
 });
+
+test("resizes the task area by dragging and with the keyboard", async ({ app }) => {
+  test.skip(!workspace, "set INA_E2E_WORKSPACE (with an open team) to run");
+  await app.getByRole("combobox").first().selectOption("en");
+  await app.getByRole("button", { name: workspace ?? "", exact: true }).click();
+  await app.getByRole("button", { name: "Resume" }).first().click();
+  const handle = app.getByRole("separator", { name: /Resize panels/ });
+  const area = handle.locator("xpath=preceding-sibling::div[1]");
+  const before = (await area.boundingBox())!.height;
+  const box = (await handle.boundingBox())!;
+  await app.mouse.move(box.x + box.width / 2, box.y + 2);
+  await app.mouse.down();
+  await app.mouse.move(box.x + box.width / 2, box.y + 120, { steps: 5 });
+  await app.mouse.up();
+  const dragged = (await area.boundingBox())!.height;
+  expect(dragged).toBeGreaterThan(before + 60);
+  await handle.focus();
+  await app.keyboard.press("ArrowUp");
+  expect((await area.boundingBox())!.height).toBeLessThan(dragged);
+});
