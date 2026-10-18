@@ -1,0 +1,100 @@
+{
+  "app": {
+    "name": "INA",
+    "language": "Language",
+    "languages": {
+      "pt-BR": "Português",
+      "en": "English"
+    }
+  },
+  "terminal": {
+    "restart": "Restart",
+    "kill": "Stop",
+    "running": "Running",
+    "exited": "Exited (code {{code}})",
+    "exitedUnknown": "Exited",
+    "spawnError": "Failed to start session: {{error}}",
+    "maximize": "Maximize",
+    "restore": "Restore"
+  },
+  "workspaces": {
+    "title": "Workspaces",
+    "empty": "No workspaces yet",
+    "addLabel": "Add folder path",
+    "add": "Add",
+    "remove": "Remove {{name}}",
+    "selectHint": "Select or add a workspace to open a terminal."
+  },
+  "team": {
+    "title": "Team",
+    "requestLabel": "Describe the task and the team",
+    "requestPlaceholder": "E.g.: 2 agents — one for the API, one for tests",
+    "generate": "Generate plan",
+    "planning": "Planning…",
+    "approve": "Approve and open {{count}} sessions",
+    "orchestrator": "Orchestrator",
+    "scope": "Scope",
+    "dependsOn": "Depends on",
+    "mode": {
+      "parallel": "Parallel execution",
+      "sequential": "Sequential execution"
+    },
+    "untrusted": "Claude Code does not trust this folder yet, so the agents would stop at the trust prompt.",
+    "untrustedHint": "Open a terminal in the folder, run claude, choose \"Yes, I trust this folder\" and exit. Then click Check again.",
+    "recheck": "Check again",
+    "openTeams": "Open teams (not cleaned up)",
+    "resume": "Resume",
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agents",
+    "openTerminal": "Open terminal",
+    "waitingFor": "Waits for: {{agents}}"
+  },
+  "integration": {
+    "title": "Integration",
+    "status": "Branch status",
+    "integrate": "Integrate",
+    "cleanup": "Clean up worktrees",
+    "confirm": {
+      "integrate": "Merge the agents' branches into the workspace's current branch?",
+      "cleanup": "Stop the team's terminals and remove the worktrees and already merged branches?",
+      "forceCleanup": "Delete the UNTRACKED files of the worktrees that failed? Only merged branches with no modified tracked files are removed. This cannot be undone."
+    },
+    "yes": "Confirm",
+    "cancel": "Cancel",
+    "ahead_one": "{{count}} commit ahead",
+    "ahead_other": "{{count}} commits ahead",
+    "dirty": "uncommitted changes",
+    "merged": "merged",
+    "skipped": "no new commits",
+    "conflict": "conflict in {{files}}; merge aborted, nothing changed",
+    "removed": "removed",
+    "untracked": "untracked (not merged): {{files}}",
+    "forceCleanup": "Force removal",
+    "failed": "failed, integration stopped (earlier merges kept): {{error}}"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "refresh": "Refresh",
+    "none": "No tasks registered.",
+    "invalidResult": "invalid result.json: {{error}}",
+    "criteria_one": "{{count}} acceptance criterion",
+    "criteria_other": "{{count}} acceptance criteria",
+    "status": {
+      "pending": "pending",
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "blocked": "blocked",
+      "cancelled": "cancelled"
+    }
+  },
+  "setup": {
+    "checking": "Checking Claude Code…",
+    "title": "Claude Code is not ready yet",
+    "notInstalled": "Claude Code not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",
+    "notOnboarded": "First run pending: open a terminal, run claude and finish the initial setup.",
+    "notLoggedIn": "Not logged in: run claude in a terminal and log in (or set ANTHROPIC_API_KEY).",
+    "error": "Could not check: {{error}}",
+    "recheck": "Check again"
+  }
+}

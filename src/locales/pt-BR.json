@@ -1,0 +1,100 @@
+{
+  "app": {
+    "name": "INA",
+    "language": "Idioma",
+    "languages": {
+      "pt-BR": "Português",
+      "en": "English"
+    }
+  },
+  "terminal": {
+    "restart": "Reiniciar",
+    "kill": "Parar",
+    "running": "Em execução",
+    "exited": "Encerrado (código {{code}})",
+    "exitedUnknown": "Encerrado",
+    "spawnError": "Falha ao iniciar sessão: {{error}}",
+    "maximize": "Maximizar",
+    "restore": "Restaurar"
+  },
+  "workspaces": {
+    "title": "Workspaces",
+    "empty": "Nenhum workspace ainda",
+    "addLabel": "Adicionar caminho da pasta",
+    "add": "Adicionar",
+    "remove": "Remover {{name}}",
+    "selectHint": "Selecione ou adicione um workspace para abrir um terminal."
+  },
+  "team": {
+    "title": "Equipe",
+    "requestLabel": "Descreva a tarefa e a equipe",
+    "requestPlaceholder": "Ex.: 2 agentes — um para a API, outro para os testes",
+    "generate": "Gerar plano",
+    "planning": "Planejando…",
+    "approve": "Aprovar e abrir {{count}} sessões",
+    "orchestrator": "Orquestrador",
+    "scope": "Escopo",
+    "dependsOn": "Depende de",
+    "mode": {
+      "parallel": "Execução em paralelo",
+      "sequential": "Execução sequencial"
+    },
+    "untrusted": "O Claude Code ainda não confia nesta pasta, e os agentes ficariam parados na pergunta de confiança.",
+    "untrustedHint": "Abra um terminal na pasta, rode claude, escolha \"Yes, I trust this folder\" e saia. Depois clique em Verificar de novo.",
+    "recheck": "Verificar de novo",
+    "openTeams": "Equipes abertas (não limpas)",
+    "resume": "Retomar",
+    "agents_one": "{{count}} agente",
+    "agents_other": "{{count}} agentes",
+    "openTerminal": "Abrir terminal",
+    "waitingFor": "Aguarda concluir: {{agents}}"
+  },
+  "integration": {
+    "title": "Integração",
+    "status": "Status das branches",
+    "integrate": "Integrar",
+    "cleanup": "Limpar worktrees",
+    "confirm": {
+      "integrate": "Fazer merge das branches dos agentes na branch atual do workspace?",
+      "cleanup": "Encerrar os terminais da equipe e remover os worktrees e as branches já integradas?",
+      "forceCleanup": "Apagar os arquivos NÃO rastreados dos worktrees que falharam? Só remove branches já integradas e sem arquivos rastreados modificados. Não dá para desfazer."
+    },
+    "yes": "Confirmar",
+    "cancel": "Cancelar",
+    "ahead_one": "{{count}} commit à frente",
+    "ahead_other": "{{count}} commits à frente",
+    "dirty": "mudanças não commitadas",
+    "merged": "integrado",
+    "skipped": "sem commits novos",
+    "conflict": "conflito em {{files}}; merge abortado, nada foi alterado",
+    "removed": "removido",
+    "untracked": "não rastreados (fora do merge): {{files}}",
+    "forceCleanup": "Forçar remoção",
+    "failed": "falhou, integração parada (merges anteriores mantidos): {{error}}"
+  },
+  "tasks": {
+    "title": "Tarefas",
+    "refresh": "Atualizar",
+    "none": "Nenhuma tarefa registrada.",
+    "invalidResult": "result.json inválido: {{error}}",
+    "criteria_one": "{{count}} critério de aceite",
+    "criteria_other": "{{count}} critérios de aceite",
+    "status": {
+      "pending": "pendente",
+      "running": "em execução",
+      "done": "concluída",
+      "failed": "falhou",
+      "blocked": "bloqueada",
+      "cancelled": "cancelada"
+    }
+  },
+  "setup": {
+    "checking": "Verificando o Claude Code…",
+    "title": "Claude Code ainda não está pronto",
+    "notInstalled": "Claude Code não encontrado no PATH. Instale com: npm install -g @anthropic-ai/claude-code",
+    "notOnboarded": "Primeira execução pendente: abra um terminal, rode claude e conclua a configuração inicial.",
+    "notLoggedIn": "Sem login: rode claude em um terminal e faça login (ou defina ANTHROPIC_API_KEY).",
+    "error": "Não foi possível verificar: {{error}}",
+    "recheck": "Verificar de novo"
+  }
+}
