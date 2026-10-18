@@ -618,7 +618,9 @@ async fn pty_spawn_agent(
             // Same run reopened (e.g. a remounted terminal): keep what the first spawn recorded.
             tasks::recorded_previous(&wt.path)
         };
-        let prerequisites = merge_prerequisites(&store, &team, &agent_id, wt).await?;
+        // Never merge under a live session of this agent: it may be editing that worktree.
+        let merge = !other_live_session(&pty, &plans, plan_id, &agent_id, "");
+        let prerequisites = merge_prerequisites(&store, &team, &agent_id, wt, merge).await?;
         tasks::write_task(
             &wt.path,
             reg.team,
@@ -689,6 +691,7 @@ async fn merge_prerequisites(
     team: &plan::Team,
     agent_id: &str,
     wt: &worktree::Worktree,
+    merge: bool,
 ) -> Result<Vec<tasks::Prerequisite>, String> {
     let rows = store.tasks(to_team(team.id)?).map_err(|e| e.to_string())?;
     let prerequisites: Vec<tasks::Prerequisite> = team
@@ -705,7 +708,7 @@ async fn merge_prerequisites(
             })
         })
         .collect();
-    if prerequisites.is_empty() {
+    if prerequisites.is_empty() || !merge {
         return Ok(prerequisites);
     }
     let git = git_for(store, team.workspace_id)?;
@@ -761,12 +764,16 @@ fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: St
                 reg.transition(&agent, TaskStatus::Failed, None, Some(&why))
                     .map_err(|e| e.to_string())
             });
-        if let Err(e) = failed {
-            eprintln!("task {agent}: recording timeout failed: {e}");
-        }
-        // Failed first, so the kill's exit is not recorded as a cancel.
-        if let Err(e) = pty.kill(&session) {
-            eprintln!("task {agent}: timeout kill failed: {e}");
+        match failed {
+            // Failed first, so the kill's exit is not recorded as a cancel.
+            Ok(true) => {
+                if let Err(e) = pty.kill(&session) {
+                    eprintln!("task {agent}: timeout kill failed: {e}");
+                }
+            }
+            // Reported meanwhile (verifying, blocked, done): leave the session alone.
+            Ok(false) => {}
+            Err(e) => eprintln!("task {agent}: recording timeout failed: {e}"),
         }
     });
 }
@@ -855,6 +862,21 @@ fn kick_verifications(
         std::thread::spawn(move || {
             if let Err(e) = verify_agent(&app, plan_id, &team, &key.1) {
                 eprintln!("verify {}: {e}", key.1);
+                // Not left in `verifying`, where every poll would retry it.
+                let store = app.state::<Store>();
+                let failed = workspace_root(&store, team.workspace_id).and_then(|root| {
+                    registry(&store, &root, plan_id, &team.plan)?
+                        .transition(
+                            &key.1,
+                            TaskStatus::Failed,
+                            None,
+                            Some(&format!("verification error: {e}")),
+                        )
+                        .map_err(|e| e.to_string())
+                });
+                if let Err(e2) = failed {
+                    eprintln!("verify {}: recording failure failed: {e2}", key.1);
+                }
             }
             if let Ok(mut running) = RUNNING.lock() {
                 running.retain(|k| k != &key);
@@ -897,7 +919,10 @@ fn verify_agent(
         .join("verify")
         .join(format!("{}-{agent_id}", reg.team));
     if snap.exists() {
-        let _ = git.remove_snapshot(&snap); // left over from an interrupted run
+        // Left over from an interrupted run.
+        if let Err(e) = git.remove_snapshot(&snap) {
+            eprintln!("verify {agent_id}: removing stale snapshot failed: {e}");
+        }
     }
     let outcome = match git.snapshot(&wt.branch, &snap) {
         Ok(()) => {
@@ -972,7 +997,7 @@ async fn team_messages(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<Messag
         );
         for (from, dir) in sources {
             let is_orch = from == plan::ORCHESTRATOR_ID;
-            for got in messages::ingest(dir, is_orch, &agents).map_err(|e| e.to_string())? {
+            messages::ingest(dir, is_orch, &agents, |got| {
                 let (kind, text, to, status) = match &got.message {
                     Ok(m) => (
                         m.kind.as_str(),
@@ -996,7 +1021,9 @@ async fn team_messages(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<Messag
                     )
                     .map_err(|e| e.to_string())?;
                 reg.log_event(from, "message", Some(&format!("{kind} ({status})")));
-            }
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
         }
         list_messages(&store, reg.team)
     })
@@ -1070,7 +1097,7 @@ async fn team_send(
     blocking(move || {
         let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let text = text.trim();
-        if text.is_empty() || text.len() > messages::MAX_TEXT {
+        if text.is_empty() || text.chars().count() > messages::MAX_TEXT {
             return Err("message is empty or too long".into());
         }
         let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;

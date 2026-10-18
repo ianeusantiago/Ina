@@ -66,8 +66,10 @@ pub fn parse_outgoing(
     agents: &[&str],
 ) -> Result<Outgoing, String> {
     let m: Outgoing = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    if m.text.trim().is_empty() || m.text.len() > MAX_TEXT {
-        return Err(format!("text is empty or longer than {MAX_TEXT} bytes"));
+    if m.text.trim().is_empty() || m.text.chars().count() > MAX_TEXT {
+        return Err(format!(
+            "text is empty or longer than {MAX_TEXT} characters"
+        ));
     }
     let allowed = if from_orchestrator {
         m.kind == Kind::Instruction
@@ -94,11 +96,13 @@ pub struct Ingested {
 }
 
 /// Read up to `MAX_PER_POLL` outbox files of `dir`, oldest name first, moving each to
-/// `done/` or `rejected/` so it is ingested once.
+/// `done/` or `rejected/` so it is ingested once. `store` runs after each move; if it fails
+/// the file is moved back to the outbox (retried next poll) and the error is returned.
 pub fn ingest(
     dir: &Path,
     from_orchestrator: bool,
     agents: &[&str],
+    mut store: impl FnMut(&Ingested) -> Result<(), String>,
 ) -> std::io::Result<Vec<Ingested>> {
     // Overlapping polls (two panels, a remount) would read a file twice before moving it.
     static INGESTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -152,10 +156,18 @@ pub fn ingest(
         {
             continue;
         }
-        out.push(Ingested {
+        let got = Ingested {
             file: name,
             message,
-        });
+        };
+        if let Err(e) = store(&got) {
+            let back = fs::rename(dest.join(&got.file), &path);
+            return Err(std::io::Error::other(match back {
+                Ok(()) => e,
+                Err(b) => format!("{e}; restoring {} failed: {b}", got.file),
+            }));
+        }
+        out.push(got);
     }
     Ok(out)
 }
@@ -246,6 +258,21 @@ mod tests {
     }
 
     #[test]
+    fn failed_store_keeps_file_in_outbox() {
+        let dir = tempdir("ingest-fail");
+        let outbox = dir.join(".ina/outbox");
+        fs::create_dir_all(&outbox).unwrap();
+        fs::write(outbox.join("1.json"), r#"{"type":"progress","text":"x"}"#).unwrap();
+        std::thread::sleep(SETTLE + std::time::Duration::from_millis(200));
+        assert!(ingest(&dir, false, &["api"], |_| Err("db busy".into())).is_err());
+        assert!(
+            outbox.join("1.json").is_file(),
+            "file restored for the next poll"
+        );
+        assert_eq!(ingest(&dir, false, &["api"], |_| Ok(())).unwrap().len(), 1);
+    }
+
+    #[test]
     fn ingest_moves_files_once() {
         let dir = tempdir("ingest");
         let outbox = dir.join(".ina/outbox");
@@ -258,16 +285,22 @@ mod tests {
         fs::write(outbox.join("2.json"), "nope").unwrap();
         fs::write(outbox.join("note.txt"), "ignored").unwrap();
         assert!(
-            ingest(&dir, false, &["api"]).unwrap().is_empty(),
+            ingest(&dir, false, &["api"], |_| Ok(()))
+                .unwrap()
+                .is_empty(),
             "fresh files wait"
         );
         std::thread::sleep(SETTLE + std::time::Duration::from_millis(200));
-        let got = ingest(&dir, false, &["api"]).unwrap();
+        let got = ingest(&dir, false, &["api"], |_| Ok(())).unwrap();
         assert_eq!(got.len(), 2);
         assert!(got[0].message.is_ok() && got[1].message.is_err());
         assert!(outbox.join("done/1.json").exists());
         assert!(outbox.join("rejected/2.json").exists());
-        assert!(ingest(&dir, false, &["api"]).unwrap().is_empty());
+        assert!(
+            ingest(&dir, false, &["api"], |_| Ok(()))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

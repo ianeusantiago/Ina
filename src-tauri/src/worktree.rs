@@ -198,7 +198,6 @@ impl Git {
         Ok(self.run(&["status", "--porcelain"])?.is_empty())
     }
 
-    /// Merge one branch into HEAD (`--no-ff`). A conflict is aborted, leaving HEAD unchanged.
     /// Simulate merging `branches` into HEAD in order, without touching any ref, index or
     /// working tree (`git merge-tree --write-tree`; intermediate results are unreferenced
     /// commit objects). Returns, per branch, `None` if clean or the conflicting files; stops
@@ -295,6 +294,7 @@ impl Git {
         Ok(files)
     }
 
+    /// Merge one branch into HEAD (`--no-ff`). A conflict is aborted, leaving HEAD unchanged.
     pub fn merge(&self, branch: &str) -> Result<MergeOutcome, WorktreeError> {
         self.merge_in(&self.root, branch)
     }

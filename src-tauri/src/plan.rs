@@ -326,7 +326,7 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
          are met. To ask the user something, report progress or hand off to another agent, write \
          `.ina/outbox/<name>.json`: {{\"type\": \"question\" | \"progress\" | \"blocked\" | \
          \"handoff\", \"text\": \"...\", \"to\": \"<agent id, optional>\"}}. Answers and \
-         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it. If `.ina/task.json` has          `previousAttempt`, an earlier run ended that way: fix that first.",
+         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it. If `.ina/task.json` has `previousAttempt`, an earlier run ended that way: fix that first.",
         agent.name,
         agent.role,
         plan.summary,
@@ -346,7 +346,6 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
 const ORCHESTRATOR_DENIED: &[&str] = &[
     // Write stays possible only with your approval (default permission mode) and never in the
     // agents' worktrees, git internals or INA's event log; `.ina/outbox/` is pre-allowed below.
-    "Edit",
     "NotebookEdit",
     "Edit(.ina/worktrees/**)",
     "Edit(.git/**)",
