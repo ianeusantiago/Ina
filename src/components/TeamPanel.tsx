@@ -12,6 +12,7 @@ import {
   type PlanDraft,
 } from "../lib/team";
 import { IntegrationBar } from "./IntegrationBar";
+import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { TerminalPane } from "./TerminalPane";
 
@@ -128,14 +129,19 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <IntegrationBar planId={id} />
-      <TaskPanel
-        agents={p.agents}
-        tasks={tasks}
-        error={error}
-        onRefresh={() => void refresh()}
-        autoStart={autoStart}
-        onAutoStart={changeAutoStart}
-      />
+      <div className="grid max-h-[40%] min-h-0 grid-cols-2 gap-2 overflow-hidden">
+        <div className="min-h-0 overflow-y-auto">
+          <TaskPanel
+            agents={p.agents}
+            tasks={tasks}
+            error={error}
+            onRefresh={() => void refresh()}
+            autoStart={autoStart}
+            onAutoStart={changeAutoStart}
+          />
+        </div>
+        <MessagePanel planId={id} agents={p.agents} />
+      </div>
       <div
         className="grid min-h-0 flex-1 gap-2"
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}

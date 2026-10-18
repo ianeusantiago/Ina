@@ -97,4 +97,21 @@ export interface TaskView {
 }
 
 export const teamTasks = (planId: number) => invoke<TaskView[]>("team_tasks", { planId });
+export interface MessageView {
+  id: number;
+  from: string;
+  to: string | null;
+  kind: string;
+  text: string;
+  status: "received" | "proposed" | "delivered" | "rejected";
+  replyTo: number | null;
+  at: string;
+}
+
+export const teamMessages = (planId: number) => invoke<MessageView[]>("team_messages", { planId });
+export const sendMessage = (planId: number, to: string, text: string, replyTo: number | null) =>
+  invoke<MessageView[]>("team_send", { planId, to, text, replyTo });
+export const decideMessage = (planId: number, messageId: number, approve: boolean) =>
+  invoke<MessageView[]>("message_decide", { planId, messageId, approve });
+
 export const listTeams = (workspaceId: number) => invoke<PlanDraft[]>("team_list", { workspaceId });

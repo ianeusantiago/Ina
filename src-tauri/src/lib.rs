@@ -1,3 +1,4 @@
+mod messages;
 mod plan;
 mod policy;
 mod pty;
@@ -673,6 +674,208 @@ struct TaskView {
     result_error: Option<String>,
 }
 
+/// A message as shown in the team panel.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageView {
+    id: i64,
+    from: String,
+    to: Option<String>,
+    kind: String,
+    text: String,
+    status: String,
+    reply_to: Option<i64>,
+    at: String,
+}
+
+const MSG_RECEIVED: &str = "received";
+const MSG_PROPOSED: &str = "proposed";
+const MSG_DELIVERED: &str = "delivered";
+const MSG_REJECTED: &str = "rejected";
+
+/// Ingest new outbox files (orchestrator in the root, agents in their worktrees) and return
+/// the team's messages. Orchestrator instructions wait as `proposed` for the user.
+#[tauri::command]
+async fn team_messages(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<MessageView>, String> {
+    blocking(move || {
+        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+        let root = workspace_root(&store, team.workspace_id)?;
+        let reg = registry(&store, &root, plan_id, &team.plan)?;
+        let agents: Vec<&str> = team.plan.agents.iter().map(|a| a.id.as_str()).collect();
+        let mut sources: Vec<(&str, &std::path::Path)> = vec![(plan::ORCHESTRATOR_ID, &root)];
+        sources.extend(
+            team.worktrees
+                .iter()
+                .map(|(a, w)| (a.as_str(), w.path.as_path())),
+        );
+        for (from, dir) in sources {
+            let is_orch = from == plan::ORCHESTRATOR_ID;
+            for got in messages::ingest(dir, is_orch, &agents).map_err(|e| e.to_string())? {
+                let (kind, text, to, status) = match &got.message {
+                    Ok(m) => (
+                        m.kind.as_str(),
+                        m.text.clone(),
+                        m.to.as_deref(),
+                        if is_orch { MSG_PROPOSED } else { MSG_RECEIVED },
+                    ),
+                    Err(e) => ("invalid", format!("{}: {e}", got.file), None, MSG_REJECTED),
+                };
+                store
+                    .insert_message(
+                        reg.team,
+                        &store::NewMessage {
+                            from,
+                            to,
+                            kind,
+                            text: &text,
+                            status,
+                            reply_to: None,
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
+                reg.log_event(from, "message", Some(&format!("{kind} ({status})")));
+            }
+        }
+        list_messages(&store, reg.team)
+    })
+    .await
+}
+
+fn list_messages(store: &Store, team: i64) -> Result<Vec<MessageView>, String> {
+    Ok(store
+        .messages(team)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|m| MessageView {
+            id: m.id,
+            from: m.from_agent,
+            to: m.to_agent,
+            kind: m.kind,
+            text: m.text,
+            status: m.status,
+            reply_to: m.reply_to,
+            at: m.at,
+        })
+        .collect())
+}
+
+/// Write a message to an agent's inbox and point its live terminal(s) at it.
+fn deliver(
+    pty: &PtyManager,
+    plans: &PlanStore,
+    team: &plan::Team,
+    plan_id: u64,
+    msg: (i64, &str, &str, messages::Kind, &str, Option<i64>),
+) -> Result<(), String> {
+    let (id, from, to, kind, text, reply_to) = msg;
+    let wt = team.worktrees.get(to).ok_or("unknown agent")?;
+    let rel = messages::write_inbox(&wt.path, id, from, kind, text, reply_to)
+        .map_err(|e| e.to_string())?;
+    // If no session is live the message waits; the agent's prompt points at the inbox.
+    for s in plans.agent_sessions(plan_id, to) {
+        if pty.is_running(&s)
+            && let Err(e) = pty.write(&s, messages::notice(&rel).as_bytes())
+        {
+            eprintln!("notify {to}: {e}");
+        }
+    }
+    Ok(())
+}
+
+/// The user answers or instructs an agent directly.
+#[tauri::command]
+async fn team_send(
+    app: tauri::AppHandle,
+    plan_id: u64,
+    to: String,
+    text: String,
+    reply_to: Option<i64>,
+) -> Result<Vec<MessageView>, String> {
+    blocking(move || {
+        let (pty, store, plans) = (
+            app.state::<PtyManager>(),
+            app.state::<Store>(),
+            app.state::<PlanStore>(),
+        );
+        let text = text.trim();
+        if text.is_empty() || text.len() > 4000 {
+            return Err("message is empty or too long".into());
+        }
+        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+        team.plan.agent(&to).map_err(|e| e.to_string())?;
+        let team_id = to_team(plan_id)?;
+        let id = store
+            .insert_message(
+                team_id,
+                &store::NewMessage {
+                    from: "user",
+                    to: Some(&to),
+                    kind: messages::Kind::Reply.as_str(),
+                    text,
+                    status: MSG_DELIVERED,
+                    reply_to,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        let reply = messages::Kind::Reply;
+        deliver(
+            &pty,
+            &plans,
+            &team,
+            plan_id,
+            (id, "user", &to, reply, text, reply_to),
+        )?;
+        list_messages(&store, team_id)
+    })
+    .await
+}
+
+/// Approve (deliver) or reject an orchestrator instruction.
+#[tauri::command]
+async fn message_decide(
+    app: tauri::AppHandle,
+    plan_id: u64,
+    message_id: i64,
+    approve: bool,
+) -> Result<Vec<MessageView>, String> {
+    blocking(move || {
+        let (pty, store, plans) = (
+            app.state::<PtyManager>(),
+            app.state::<Store>(),
+            app.state::<PlanStore>(),
+        );
+        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+        let team_id = to_team(plan_id)?;
+        let msg = store
+            .messages(team_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|m| m.id == message_id && m.status == MSG_PROPOSED)
+            .ok_or("no such pending proposal")?;
+        let to = if approve { MSG_DELIVERED } else { MSG_REJECTED };
+        if !store
+            .update_message_status(team_id, message_id, MSG_PROPOSED, to)
+            .map_err(|e| e.to_string())?
+        {
+            return Err("proposal was already decided".into());
+        }
+        if approve {
+            let target = msg.to_agent.as_deref().ok_or("instruction has no target")?;
+            let kind = messages::Kind::Instruction;
+            deliver(
+                &pty,
+                &plans,
+                &team,
+                plan_id,
+                (msg.id, &msg.from_agent, target, kind, &msg.text, None),
+            )?;
+        }
+        list_messages(&store, team_id)
+    })
+    .await
+}
+
 /// Re-read running agents' `result.json` and return the team's task registry.
 #[tauri::command]
 async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
@@ -795,7 +998,10 @@ pub fn run() {
             team_cleanup,
             team_list,
             team_tasks,
-            claude_setup
+            claude_setup,
+            team_messages,
+            team_send,
+            message_decide
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -98,5 +98,35 @@
     "notLoggedIn": "Sem login: rode claude em um terminal e faça login (ou defina ANTHROPIC_API_KEY).",
     "error": "Não foi possível verificar: {{error}}",
     "recheck": "Verificar de novo"
+  },
+  "messages": {
+    "title": "Mensagens",
+    "none": "Nenhuma mensagem.",
+    "approve": "Aprovar",
+    "reject": "Rejeitar",
+    "reply": "Responder",
+    "send": "Enviar",
+    "to": "Para",
+    "placeholder": "Mensagem para o agente…",
+    "replyingTo": "Resposta a: {{text}}",
+    "who": {
+      "user": "Você",
+      "orchestrator": "Orquestrador"
+    },
+    "kind": {
+      "progress": "progresso",
+      "question": "pergunta",
+      "blocked": "bloqueio",
+      "handoff": "entrega",
+      "instruction": "instrução",
+      "reply": "resposta",
+      "invalid": "inválida"
+    },
+    "status": {
+      "received": "recebida",
+      "proposed": "aguarda aprovação",
+      "delivered": "entregue",
+      "rejected": "rejeitada"
+    }
   }
 }

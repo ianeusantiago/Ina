@@ -350,6 +350,11 @@ impl Registry<'_> {
     /// The event log is a mirror for the orchestrator; the store is the source of truth, so a
     /// failed append is reported but does not undo the change.
     fn log(&self, agent: &str, status: TaskStatus, detail: Option<&str>) {
+        self.log_event(agent, status.as_str(), detail);
+    }
+
+    /// Append a non-status event (e.g. `message`) to the event log.
+    pub fn log_event(&self, agent: &str, status: &str, detail: Option<&str>) {
         let at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -358,7 +363,7 @@ impl Registry<'_> {
             at,
             team_id: self.team,
             agent_id: agent,
-            status: status.as_str(),
+            status,
             detail,
         };
         if let Err(err) = append_event(self.root, &e) {

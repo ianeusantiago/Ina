@@ -232,8 +232,13 @@ pub fn orchestrator_prompt(plan: &Plan, worktrees: &HashMap<String, Worktree>) -
          worktree; their changes do not appear in your checkout until integrated. Monitor the \
          branches read-only (e.g. `git log HEAD..<branch>`, `git diff HEAD...<branch>`), \
          validate results against the acceptance criteria, and report honestly whether the team \
-         is ready to integrate. Each agent reports in `<worktree>/.ina/result.json` and every \n         status change is appended to `.ina/events.jsonl` in this directory. Never merge, rebase, reset or commit yourself: the user \
-         integrates through INA after reviewing. Do not do the agents' work yourself.",
+         is ready to integrate. Each agent reports in `<worktree>/.ina/result.json`; every status \
+         change is appended to `.ina/events.jsonl` in this directory. To instruct an agent, \
+         write a JSON file to `.ina/outbox/<name>.json` in this directory: {{\"type\": \
+         \"instruction\", \"to\": \"<agent id>\", \"text\": \"...\"}}; the user approves it in INA \
+         before it is delivered. Write no other files. Never merge, rebase, reset or commit \
+         yourself: the user integrates through INA after reviewing. Do not do the agents' work \
+         yourself.",
         plan.mode,
         plan.summary,
         team.join("\n")
@@ -246,7 +251,14 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
         "You are agent \"{}\" ({}) in an INA team. Overall goal: {}\n\nYour scope: {}\n\
          Your task: {}\n\nAcceptance criteria:\n{}\n\nDepends on: {}. You work in your own git \
          worktree on branch `{}`; commit your work there and do not touch other branches. Stay \
-         within your scope. Your assignment is also in `.ina/task.json`. When you finish, fail or \n         are blocked, write `.ina/result.json` as JSON: {{\"status\": \"done\" | \"failed\" | \n         \"blocked\", \"summary\": \"...\", \"files\": [\"changed paths\"], \"notes\": \"optional\"}}. \n         INA reads it to track your status; never report done unless the criteria are met.",
+         within your scope. Your assignment is also in `.ina/task.json`. When you finish, fail or \
+         are blocked, write `.ina/result.json` as JSON: {{\"status\": \"done\" | \"failed\" | \
+         \"blocked\", \"summary\": \"...\", \"files\": [\"changed paths\"], \"notes\": \
+         \"optional\"}}; INA reads it to track your status. Never report done unless the criteria \
+         are met. To ask the user something, report progress or hand off to another agent, write \
+         `.ina/outbox/<name>.json`: {{\"type\": \"question\" | \"progress\" | \"blocked\" | \
+         \"handoff\", \"text\": \"...\", \"to\": \"<agent id, optional>\"}}. Answers and \
+         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it.",
         agent.name,
         agent.role,
         plan.summary,
@@ -264,8 +276,9 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
 
 /// Tools the orchestrator may not use: it reviews, the user integrates through INA.
 const ORCHESTRATOR_DENIED: &[&str] = &[
+    // Write stays allowed for `.ina/outbox/` proposals; Claude Code asks before each write in
+    // the default permission mode, which the orchestrator is forced into.
     "Edit",
-    "Write",
     "NotebookEdit",
     "Bash(git merge:*)",
     "Bash(git rebase:*)",
@@ -279,7 +292,12 @@ const ORCHESTRATOR_DENIED: &[&str] = &[
 
 /// Prompt first: `--disallowedTools` is variadic and would swallow a trailing prompt.
 pub fn orchestrator_args(prompt: String) -> Vec<String> {
-    let mut args = vec![prompt, "--disallowedTools".to_string()];
+    let mut args = vec![
+        prompt,
+        "--permission-mode".to_string(),
+        "default".to_string(),
+        "--disallowedTools".to_string(),
+    ];
     args.extend(ORCHESTRATOR_DENIED.iter().map(|s| s.to_string()));
     args
 }

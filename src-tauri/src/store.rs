@@ -64,6 +64,18 @@ const MIGRATIONS: &[&str] = &[
         detail TEXT,
         at TEXT NOT NULL DEFAULT (datetime('now'))
     );",
+    // Structured messages. `status`: received | proposed | delivered | rejected.
+    "CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        from_agent TEXT NOT NULL,
+        to_agent TEXT,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reply_to INTEGER REFERENCES messages(id),
+        at TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
 ];
 
 pub struct Store {
@@ -368,6 +380,74 @@ impl Store {
     }
 }
 
+/// A stored message; `kind`/`status` strings are owned by `messages`/lib.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageRow {
+    pub id: i64,
+    pub from_agent: String,
+    pub to_agent: Option<String>,
+    pub kind: String,
+    pub text: String,
+    pub status: String,
+    pub reply_to: Option<i64>,
+    pub at: String,
+}
+
+/// A message to store.
+pub struct NewMessage<'a> {
+    pub from: &'a str,
+    pub to: Option<&'a str>,
+    pub kind: &'a str,
+    pub text: &'a str,
+    pub status: &'a str,
+    pub reply_to: Option<i64>,
+}
+
+impl Store {
+    pub fn insert_message(&self, team: i64, m: &NewMessage<'_>) -> Result<i64, StoreError> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO messages (team_id, from_agent, to_agent, kind, text, status, reply_to)              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![team, m.from, m.to, m.kind, m.text, m.status, m.reply_to],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn messages(&self, team: i64) -> Result<Vec<MessageRow>, StoreError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, from_agent, to_agent, kind, text, status, reply_to, at FROM messages              WHERE team_id = ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map([team], |r| {
+            Ok(MessageRow {
+                id: r.get(0)?,
+                from_agent: r.get(1)?,
+                to_agent: r.get(2)?,
+                kind: r.get(3)?,
+                text: r.get(4)?,
+                status: r.get(5)?,
+                reply_to: r.get(6)?,
+                at: r.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Change a message's status only if it is still `from`; false when it moved on.
+    pub fn update_message_status(
+        &self,
+        team: i64,
+        id: i64,
+        from: &str,
+        to: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(self.conn()?.execute(
+            "UPDATE messages SET status = ?4 WHERE team_id = ?1 AND id = ?2 AND status = ?3",
+            params![team, id, from, to],
+        )? > 0)
+    }
+}
+
 impl Workspace {
     pub fn root(&self) -> PathBuf {
         PathBuf::from(&self.path)
@@ -505,5 +585,38 @@ mod tests {
             .map(|e| e.0)
             .collect();
         assert_eq!(h, ["pending", "running", "done"]);
+    }
+
+    #[test]
+    fn messages_are_stored_and_decided_once() {
+        let s = Store::in_memory().unwrap();
+        let w = s.add_workspace(&tempdir("msgs")).unwrap();
+        let t = s.insert_team(w.id, "{}").unwrap();
+        let id = s
+            .insert_message(
+                t,
+                &NewMessage {
+                    from: "orchestrator",
+                    to: Some("ui"),
+                    kind: "instruction",
+                    text: "use flexbox",
+                    status: "proposed",
+                    reply_to: None,
+                },
+            )
+            .unwrap();
+        assert!(
+            s.update_message_status(t, id, "proposed", "delivered")
+                .unwrap()
+        );
+        assert!(
+            !s.update_message_status(t, id, "proposed", "rejected")
+                .unwrap()
+        );
+        let m = &s.messages(t).unwrap()[0];
+        assert_eq!(
+            (m.status.as_str(), m.to_agent.as_deref()),
+            ("delivered", Some("ui"))
+        );
     }
 }
