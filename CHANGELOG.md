@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A background tick (every 5 s) applies results, starts verifications and ingests outboxes for every open team, so work moves on even with no team panel open; startup recovery moved off the window-opening path.
 - Task registry exposes typed statuses (`Registry::tasks`/`task`); no more string comparisons.
 - Team branch status runs git for each worktree in parallel.
+- Open panels refresh on a `team-changed` event pushed by the tick; their poll is now a 15 s fallback.
+- Agent timeouts are checked by the tick (no thread per session); the tick survives a panic and skips teams being cleaned up.
+- Verification claims are released even if a verification thread panics; prerequisite merges lock per worktree instead of globally.
+- Approved teams are cached decoded (dropped on close or workspace removal).
+
+### Security
+- Integration always requires each agent to be `done`: teams approved before the registry existed get pending rows at startup instead of skipping the gate.
 
 ## Phase 2 (reliable orchestration)
 

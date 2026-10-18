@@ -1,11 +1,14 @@
 # INA — Estado
 
-**Fase atual:** 3 (arquitetura) em andamento, branch `ianeusantiago/fase3-arquitetura`. Fase 2 integrada ao `main` (PR #3).
+**Fase atual:** 3 (arquitetura) concluída em 2026-10-18, branch `ianeusantiago/fase3-arquitetura` (PR #4), aguardando revisão/merge. Fase 2 integrada ao `main` (PR #3).
 
 ## Fase 3 — feito (verificado)
 - Tick no backend (5 s) avança equipes sem UI (provado: mensagem no outbox ingerida com painel fechado); recuperação fora do startup.
 - `Registry::tasks/task` tipados.
 - git status das worktrees em paralelo.
+- Evento `team-changed` do tick → painéis atualizam (provado: mensagem no painel em ~6 s; polling de reserva 15 s).
+- Timeouts pelo tick (`Deadlines`); claim RAII de verificação; trava de merge por worktree; cache de equipes aprovadas; backfill do registro (integração sempre exige done).
+- code-review da Fase 3: 7 achados corrigidos (recuperação antes do tick, corrida do cache, pânico no tick, tick durante limpeza, cache ao remover workspace, docs).
 
 ## Feito (verificado)
 Fase 1 (MVP): passos 1–10 (PTY, policy, SQLite, plano → aprovação → N+1 sessões, worktrees, integração, protocolo `.ina/`, registro de tarefas, i18n, docs).
@@ -19,7 +22,7 @@ Testes: Rust 50 (+6 ignorados reais), clippy -D warnings, tsc/eslint/prettier, V
 - Cópia TS de `prerequisites` espelha a Rust (poderia vir do backend).
 - E2E do fluxo real falhou 1x (plano gravado no banco, UI não recebeu resposta; não reproduziu em 3 execuções seguintes).
 - `team_tasks` não finaliza mais tarefas `running` sem sessão (só a recuperação no startup cobre corrida rara de 2 sessões saindo juntas).
-- Fase 3, restante: eventos do backend para a UI (hoje a UI ainda faz polling de leitura); `static RUNNING`/`MERGING` globais (ideal: lease no banco / trava por agente); um thread de timeout por sessão (ideal: reaper no `PtyManager`); backfill de equipes antigas sem registro; cache do `Team` decodificado; listar só mensagens novas (cuidado: status de mensagens antigas muda).
+- Pequenos (do code-review da Fase 3): `Registry::task` lê todas as linhas; evento faz a UI repetir o sync; mapa de travas por worktree nunca é limpo.
 
 ## Bloqueios
 - RAM 7,3 GB: Claude Code mata `tauri dev` em background; fechar apps pesados ao testar.
