@@ -322,6 +322,7 @@ impl Store {
     }
 
     /// Change a task's status only if it is still `from`, recording the change in its history.
+    /// `summary` belongs to the current run: it is replaced (None clears it).
     /// Returns false (and changes nothing) when the status moved on meanwhile.
     pub fn update_task(
         &self,
@@ -335,7 +336,7 @@ impl Store {
         let conn = self.conn()?;
         let tx = conn.unchecked_transaction()?;
         let n = tx.execute(
-            "UPDATE tasks SET status = ?4, summary = COALESCE(?5, summary),              updated_at = datetime('now') WHERE team_id = ?1 AND agent_id = ?2 AND status = ?3",
+            "UPDATE tasks SET status = ?4, summary = ?5,              updated_at = datetime('now') WHERE team_id = ?1 AND agent_id = ?2 AND status = ?3",
             params![team, agent, from, to, summary],
         )?;
         if n == 0 {

@@ -193,17 +193,29 @@ impl Git {
 
     /// Merge one branch into HEAD (`--no-ff`). A conflict is aborted, leaving HEAD unchanged.
     pub fn merge(&self, branch: &str) -> Result<MergeOutcome, WorktreeError> {
+        self.merge_in(&self.root, branch)
+    }
+
+    /// Whether `branch` is already contained in the HEAD checked out at `dir`.
+    pub fn is_merged_in(&self, dir: &Path, branch: &str) -> bool {
+        self.run_in(dir, &["merge-base", "--is-ancestor", branch, "HEAD"])
+            .is_ok()
+    }
+
+    /// Merge `branch` into the HEAD checked out at `dir` (the root or an agent worktree);
+    /// a conflict is aborted so nothing changes.
+    pub fn merge_in(&self, dir: &Path, branch: &str) -> Result<MergeOutcome, WorktreeError> {
         let msg = format!("ina: merge {branch}");
-        match self.run(&["merge", "--no-ff", "--no-edit", "-m", &msg, branch]) {
+        match self.run_in(dir, &["merge", "--no-ff", "--no-edit", "-m", &msg, branch]) {
             Ok(_) => Ok(MergeOutcome::Merged),
             Err(e) => {
                 let files: Vec<String> = self
-                    .run(&["diff", "--name-only", "--diff-filter=U"])
+                    .run_in(dir, &["diff", "--name-only", "--diff-filter=U"])
                     .unwrap_or_default()
                     .lines()
                     .map(str::to_string)
                     .collect();
-                if self.run(&["merge", "--abort"]).is_err() || files.is_empty() {
+                if self.run_in(dir, &["merge", "--abort"]).is_err() || files.is_empty() {
                     return Err(e); // not a plain conflict: surface git's error
                 }
                 Ok(MergeOutcome::Conflict { files })
@@ -415,6 +427,23 @@ mod tests {
         // Uncommitted work is never discarded.
         assert!(g.cleanup(&team[1], false).is_err());
         assert!(team[1].path.join("wip.txt").exists());
+    }
+
+    #[test]
+    fn prerequisite_branch_merges_into_dependent_worktree() {
+        let g = repo("prereq", true);
+        identity(&g);
+        let team = g.create_team("r", &["api", "ui"]).unwrap();
+        commit_file(&g, &team[0], "api.txt", "a");
+        assert!(!g.is_merged_in(&team[1].path, &team[0].branch));
+        assert_eq!(
+            g.merge_in(&team[1].path, &team[0].branch).unwrap(),
+            MergeOutcome::Merged
+        );
+        assert!(team[1].path.join("api.txt").exists());
+        assert!(g.is_merged_in(&team[1].path, &team[0].branch));
+        // The workspace root is untouched.
+        assert!(!g.root.join("api.txt").exists());
     }
 
     #[test]

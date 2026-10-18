@@ -47,7 +47,8 @@
     "agents_one": "{{count}} agent",
     "agents_other": "{{count}} agents",
     "openTerminal": "Open terminal",
-    "waitingFor": "Waits for: {{agents}}"
+    "waitingFor": "Waits for: {{agents}}",
+    "blocked": "Blocked: a prerequisite failed"
   },
   "integration": {
     "title": "Integration",
@@ -86,7 +87,8 @@
       "failed": "failed",
       "blocked": "blocked",
       "cancelled": "cancelled"
-    }
+    },
+    "autoStart": "Start dependents automatically"
   },
   "setup": {
     "checking": "Checking Claude Code…",

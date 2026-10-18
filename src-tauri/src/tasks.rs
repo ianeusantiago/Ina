@@ -68,12 +68,14 @@ impl TaskStatus {
         })
     }
 
-    /// Allowed moves. Any finished task may run again (the user reopens its terminal).
+    /// Allowed moves. Any finished task may run again (the user reopens its terminal); a
+    /// pending task is blocked while a prerequisite failed, and unblocked when it recovers.
     pub fn can_become(self, to: Self) -> bool {
         use TaskStatus::*;
         matches!(
             (self, to),
-            (Pending, Running | Cancelled)
+            (Pending, Running | Cancelled | Blocked)
+                | (Blocked, Pending)
                 | (Running, Done | Failed | Blocked | Cancelled)
                 | (Done | Failed | Blocked | Cancelled, Running)
         )
@@ -149,6 +151,16 @@ pub fn read_result(worktree: &Path) -> Result<Option<AgentResult>, TaskError> {
     parse_result(&fs::read_to_string(path)?).map(Some)
 }
 
+/// A finished prerequisite, as the dependent agent sees it (its branch is already merged into
+/// the dependent's worktree).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prerequisite {
+    pub id: String,
+    pub branch: String,
+    pub summary: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskFile<'a> {
@@ -156,6 +168,7 @@ struct TaskFile<'a> {
     goal: &'a str,
     agent: &'a AgentSpec,
     branch: &'a str,
+    prerequisites: &'a [Prerequisite],
     result_file: String,
     result_format: serde_json::Value,
 }
@@ -170,26 +183,33 @@ pub fn result_format() -> serde_json::Value {
     })
 }
 
-/// Write the assignment and set aside a result left by a previous run, so it is not
-/// mistaken for the new one.
+/// Set aside a result left by a previous run, so it is not mistaken for the new one.
+pub fn archive_result(worktree: &Path) -> Result<(), TaskError> {
+    let dir = ina_dir(worktree);
+    let result = dir.join(RESULT_FILE);
+    if result.exists() {
+        fs::rename(&result, dir.join("result.prev.json"))?;
+    }
+    Ok(())
+}
+
+/// Write (or refresh) the agent's assignment.
 pub fn write_task(
     worktree: &Path,
     team: i64,
     plan: &Plan,
     agent: &AgentSpec,
     branch: &str,
+    prerequisites: &[Prerequisite],
 ) -> Result<(), TaskError> {
     let dir = ina_dir(worktree);
     fs::create_dir_all(&dir)?;
-    let result = dir.join(RESULT_FILE);
-    if result.exists() {
-        fs::rename(&result, dir.join("result.prev.json"))?;
-    }
     let task = TaskFile {
         team_id: team,
         goal: &plan.summary,
         agent,
         branch,
+        prerequisites,
         result_file: format!("{INA_DIR}/{RESULT_FILE}"),
         result_format: result_format(),
     };
@@ -230,7 +250,11 @@ pub struct Registry<'a> {
     pub store: &'a Store,
     pub root: &'a Path,
     pub team: i64,
+    pub plan: &'a Plan,
 }
+
+/// Detail prefix of a block INA set because of a prerequisite (and may lift again).
+const PREREQ_BLOCK: &str = "prerequisite ";
 
 impl Registry<'_> {
     pub fn register(&self, agents: &[&str]) -> Result<(), TaskError> {
@@ -273,8 +297,54 @@ impl Registry<'_> {
         )?;
         if changed {
             self.log(agent, to, detail.or(summary));
+            self.propagate(agent, to)?;
         }
         Ok(changed)
+    }
+
+    /// Pending dependents of a failed/blocked agent become blocked; once it is done again,
+    /// dependents INA blocked go back to pending if no other prerequisite is broken. A cancel
+    /// does not block: dependents just keep waiting for it.
+    fn propagate(&self, agent: &str, to: TaskStatus) -> Result<(), TaskError> {
+        use TaskStatus::*;
+        let dependents: Vec<&str> = self
+            .plan
+            .agents
+            .iter()
+            .filter(|a| self.plan.prerequisites(&a.id).contains(&agent))
+            .map(|a| a.id.as_str())
+            .collect();
+        for d in dependents {
+            match (to, self.status(d)?) {
+                (Failed | Blocked, Some(Pending)) => {
+                    let why = format!("{PREREQ_BLOCK}{agent} is {}", to.as_str());
+                    self.transition(d, Blocked, None, Some(&why))?;
+                }
+                (Done, Some(Blocked)) if self.blocked_by_prerequisite(d)? => {
+                    let broken = self
+                        .plan
+                        .prerequisites(d)
+                        .into_iter()
+                        .any(|p| matches!(self.status(p), Ok(Some(Failed | Blocked))));
+                    if !broken {
+                        let why = format!("{PREREQ_BLOCK}{agent} is done");
+                        self.transition(d, Pending, None, Some(&why))?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn blocked_by_prerequisite(&self, agent: &str) -> Result<bool, TaskError> {
+        Ok(self
+            .store
+            .tasks(self.team)?
+            .into_iter()
+            .find(|t| t.agent_id == agent)
+            .and_then(|t| t.detail)
+            .is_some_and(|d| d.starts_with(PREREQ_BLOCK)))
     }
 
     /// The event log is a mirror for the orchestrator; the store is the source of truth, so a
@@ -397,12 +467,19 @@ mod tests {
     fn task_file_written_and_stale_result_set_aside() {
         let dir = tempdir("taskfile");
         write_result(&dir, r#"{"status":"done","summary":"old"}"#);
-        write_task(&dir, 7, &plan(), &agent(), "ina/r/api").unwrap();
+        archive_result(&dir).unwrap();
+        let pre = [Prerequisite {
+            id: "db".into(),
+            branch: "ina/r/db".into(),
+            summary: Some("schema".into()),
+        }];
+        write_task(&dir, 7, &plan(), &agent(), "ina/r/api", &pre).unwrap();
         let task: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(".ina/task.json")).unwrap()).unwrap();
         assert_eq!(task["teamId"], 7);
         assert_eq!(task["agent"]["id"], "api");
         assert_eq!(task["resultFile"], ".ina/result.json");
+        assert_eq!(task["prerequisites"][0]["branch"], "ina/r/db");
         assert!(read_result(&dir).unwrap().is_none());
         assert!(dir.join(".ina/result.prev.json").exists());
     }
@@ -414,10 +491,12 @@ mod tests {
         let store = Store::in_memory().unwrap();
         let ws = store.add_workspace(&root).unwrap();
         let team = store.insert_team(ws.id, "{}").unwrap();
+        let p = plan();
         let reg = Registry {
             store: &store,
             root: &root,
             team,
+            plan: &p,
         };
         reg.register(&["api", "ui"]).unwrap();
         assert_eq!(reg.status("api").unwrap(), Some(TaskStatus::Pending));
@@ -457,5 +536,44 @@ mod tests {
             .collect();
         assert_eq!(statuses.len(), 8, "{log}");
         assert!(log.contains("exited without result.json"));
+    }
+
+    #[test]
+    fn failure_blocks_dependents_and_recovery_unblocks_them() {
+        let root = tempdir("propagate");
+        let store = Store::in_memory().unwrap();
+        let ws = store.add_workspace(&root).unwrap();
+        let team = store.insert_team(ws.id, "{}").unwrap();
+        let mk = |id: &str, deps: &[&str]| AgentSpec {
+            id: id.into(),
+            depends_on: deps.iter().map(|d| d.to_string()).collect(),
+            ..agent()
+        };
+        let p = Plan {
+            summary: "g".into(),
+            mode: Mode::Parallel,
+            agents: vec![mk("api", &[]), mk("ui", &["api"]), mk("e2e", &["ui"])],
+        };
+        let reg = Registry {
+            store: &store,
+            root: &root,
+            team,
+            plan: &p,
+        };
+        reg.register(&["api", "ui", "e2e"]).unwrap();
+        reg.transition("api", TaskStatus::Running, None, None)
+            .unwrap();
+        reg.transition("api", TaskStatus::Failed, None, Some("boom"))
+            .unwrap();
+        assert_eq!(reg.status("ui").unwrap(), Some(TaskStatus::Blocked));
+        assert_eq!(reg.status("e2e").unwrap(), Some(TaskStatus::Blocked));
+
+        reg.transition("api", TaskStatus::Running, None, None)
+            .unwrap();
+        reg.transition("api", TaskStatus::Done, Some("ok"), None)
+            .unwrap();
+        assert_eq!(reg.status("ui").unwrap(), Some(TaskStatus::Pending));
+        // e2e waits on ui, which is pending (not done): stays blocked until ui recovers.
+        assert_eq!(reg.status("e2e").unwrap(), Some(TaskStatus::Blocked));
     }
 }

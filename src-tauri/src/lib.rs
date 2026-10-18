@@ -148,13 +148,18 @@ fn registry<'a>(
     store: &'a Store,
     root: &'a std::path::Path,
     plan_id: u64,
+    plan: &'a Plan,
 ) -> Result<Registry<'a>, String> {
     Ok(Registry {
         store,
         root,
         team: i64::try_from(plan_id).map_err(|e| e.to_string())?,
+        plan,
     })
 }
+
+/// An agent that runs longer than this is stopped and its task failed.
+const AGENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 fn folder_trusted(root: &std::path::Path) -> Result<bool, String> {
     let root = policy::simplify(root.canonicalize().map_err(|e| e.to_string())?);
@@ -375,7 +380,7 @@ async fn plan_approve(
     .await?;
     let team_id = to_team(plan_id)?;
     for (agent, wt) in plan.agents.iter().zip(&team) {
-        if let Err(e) = tasks::write_task(&wt.path, team_id, &plan, agent, &wt.branch) {
+        if let Err(e) = tasks::write_task(&wt.path, team_id, &plan, agent, &wt.branch, &[]) {
             git.remove_team(&team);
             return Err(e.to_string());
         }
@@ -392,7 +397,7 @@ async fn plan_approve(
     })?;
     let root = workspace_root(&store, workspace_id)?;
     let agent_ids: Vec<&str> = plan.agents.iter().map(|a| a.id.as_str()).collect();
-    registry(&store, &root, plan_id)?
+    registry(&store, &root, plan_id, &plan)?
         .register(&agent_ids)
         .map_err(|e| e.to_string())
 }
@@ -419,7 +424,7 @@ fn other_live_session(
 /// The prompt is built here from the stored plan, never taken from the frontend.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-fn pty_spawn_agent(
+async fn pty_spawn_agent(
     app: tauri::AppHandle,
     pty: State<'_, PtyManager>,
     store: State<'_, Store>,
@@ -438,7 +443,7 @@ fn pty_spawn_agent(
         return Err(trust::NOT_TRUSTED.into());
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let reg = registry(&store, &root, plan_id)?;
+    let reg = registry(&store, &root, plan_id, &team.plan)?;
     let is_agent = agent_id != plan::ORCHESTRATOR_ID;
     // Orchestrator works in the workspace root; each agent in its own worktree.
     let (args, cwd) = if !is_agent {
@@ -459,14 +464,23 @@ fn pty_spawn_agent(
         if !waiting.is_empty() {
             return Err(format!("waiting for: {}", waiting.join(", ")));
         }
-        // A finished task is being run again: refresh the assignment, set the old result aside.
+        // A finished task is being run again: set the old result aside.
         if !matches!(
             reg.status(&agent_id).map_err(|e| e.to_string())?,
             None | Some(TaskStatus::Pending | TaskStatus::Running)
         ) {
-            tasks::write_task(&wt.path, reg.team, &team.plan, agent, &wt.branch)
-                .map_err(|e| e.to_string())?;
+            tasks::archive_result(&wt.path).map_err(|e| e.to_string())?;
         }
+        let prerequisites = merge_prerequisites(&store, &team, &agent_id, wt).await?;
+        tasks::write_task(
+            &wt.path,
+            reg.team,
+            &team.plan,
+            agent,
+            &wt.branch,
+            &prerequisites,
+        )
+        .map_err(|e| e.to_string())?;
         let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
         (vec![prompt], wt.path.clone())
     };
@@ -475,6 +489,7 @@ fn pty_spawn_agent(
     spec.cols = cols.max(1);
     spec.rows = rows.max(1);
     let sink = channel_sink(on_event);
+    let app_for_timeout = app.clone();
     let sink: pty::EventSink = if is_agent {
         let agent = agent_id.clone();
         let wt = cwd.clone();
@@ -499,16 +514,109 @@ fn pty_spawn_agent(
         )
         .map_err(|e| e.to_string())?;
     }
-    if let Err(e) = pty.spawn(&id, spec, sink) {
+    let spawned = pty.spawn(&id, spec, sink);
+    if spawned.is_ok() && is_agent {
+        watch_timeout(app_for_timeout, plan_id, agent_id.clone(), id.clone());
+    }
+    if let Err(e) = spawned {
         if is_agent && !other_live_session(&pty, &plans, plan_id, &agent_id, &id) {
-            let detail = format!("spawn failed: {e}");
-            if let Err(e2) = reg.transition(&agent_id, TaskStatus::Failed, None, Some(&detail)) {
+            // Stopped before it started (e.g. the terminal unmounted): a cancel, not a failure.
+            let (to, detail) = match e {
+                pty::PtyError::StoppedBeforeStart(_) => (TaskStatus::Cancelled, "stopped".into()),
+                _ => (TaskStatus::Failed, format!("spawn failed: {e}")),
+            };
+            if let Err(e2) = reg.transition(&agent_id, to, None, Some(&detail)) {
                 eprintln!("task {agent_id}: recording spawn failure failed: {e2}");
             }
         }
         return Err(e.to_string());
     }
     Ok(())
+}
+
+/// Merge every finished prerequisite's branch into the dependent's worktree (so it builds on
+/// their work) and describe them for its `task.json`. A conflict is aborted and reported.
+async fn merge_prerequisites(
+    store: &Store,
+    team: &plan::Team,
+    agent_id: &str,
+    wt: &worktree::Worktree,
+) -> Result<Vec<tasks::Prerequisite>, String> {
+    let rows = store.tasks(to_team(team.id)?).map_err(|e| e.to_string())?;
+    let prerequisites: Vec<tasks::Prerequisite> = team
+        .plan
+        .prerequisites(agent_id)
+        .into_iter()
+        .filter_map(|p| {
+            let branch = team.worktrees.get(p)?.branch.clone();
+            let summary = rows.iter().find(|r| r.agent_id == p)?.summary.clone();
+            Some(tasks::Prerequisite {
+                id: p.to_owned(),
+                branch,
+                summary,
+            })
+        })
+        .collect();
+    if prerequisites.is_empty() {
+        return Ok(prerequisites);
+    }
+    let git = git_for(store, team.workspace_id)?;
+    let dir = wt.path.clone();
+    let branches: Vec<String> = prerequisites.iter().map(|p| p.branch.clone()).collect();
+    blocking(move || {
+        // Two spawns of one agent (e.g. a remounted terminal) must not race on the git index.
+        static MERGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = MERGING.lock().map_err(|e| e.to_string())?;
+        for b in &branches {
+            if git.is_merged_in(&dir, b) {
+                continue;
+            }
+            match git.merge_in(&dir, b).map_err(|e| e.to_string())? {
+                worktree::MergeOutcome::Merged => {}
+                worktree::MergeOutcome::Conflict { files } => {
+                    return Err(format!(
+                        "conflict merging prerequisite {b} into this worktree: {}",
+                        files.join(", ")
+                    ));
+                }
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(prerequisites)
+}
+
+/// Fail and stop an agent session that outlives `AGENT_TIMEOUT`.
+fn watch_timeout(app: tauri::AppHandle, plan_id: u64, agent: String, session: String) {
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + AGENT_TIMEOUT;
+        let pty = app.state::<PtyManager>();
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            if !pty.is_running(&session) {
+                return;
+            }
+        }
+        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+        let failed = plans
+            .approved(&store, plan_id)
+            .map_err(|e| e.to_string())
+            .and_then(|team| {
+                let root = workspace_root(&store, team.workspace_id)?;
+                let why = format!("timed out after {} min", AGENT_TIMEOUT.as_secs() / 60);
+                registry(&store, &root, plan_id, &team.plan)?
+                    .transition(&agent, TaskStatus::Failed, None, Some(&why))
+                    .map_err(|e| e.to_string())
+            });
+        if let Err(e) = failed {
+            eprintln!("task {agent}: recording timeout failed: {e}");
+        }
+        // Failed first, so the kill's exit is not recorded as a cancel.
+        if let Err(e) = pty.kill(&session) {
+            eprintln!("task {agent}: timeout kill failed: {e}");
+        }
+    });
 }
 
 /// An agent's process ended: cancelled if INA killed it, otherwise its result (or the lack of
@@ -530,7 +638,11 @@ fn agent_exited(
         return;
     }
     let store = app.state::<Store>();
-    let result = registry(&store, root, plan_id).and_then(|reg| {
+    let team = match plans.approved(&store, plan_id) {
+        Ok(t) => t,
+        Err(e) => return eprintln!("task {agent}: recording exit failed: {e}"),
+    };
+    let result = registry(&store, root, plan_id, &team.plan).and_then(|reg| {
         let done = if killed {
             reg.transition(agent, TaskStatus::Cancelled, None, Some("stopped"))
                 .map(|_| ())
@@ -561,31 +673,18 @@ struct TaskView {
     result_error: Option<String>,
 }
 
-/// Re-read agents' `result.json` and return the team's task registry. A running task whose
-/// session is gone (e.g. INA restarted) is finished with whatever result it left.
+/// Re-read running agents' `result.json` and return the team's task registry.
 #[tauri::command]
 async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
     blocking(move || {
-        let (pty, store, plans) = (
-            app.state::<PtyManager>(),
-            app.state::<Store>(),
-            app.state::<PlanStore>(),
-        );
+        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
         let root = workspace_root(&store, team.workspace_id)?;
-        let reg = registry(&store, &root, plan_id)?;
+        let reg = registry(&store, &root, plan_id, &team.plan)?;
         let mut errors = std::collections::HashMap::new();
         for (agent, wt) in &team.worktrees {
-            if reg.status(agent).map_err(|e| e.to_string())? != Some(TaskStatus::Running) {
-                continue;
-            }
-            if other_live_session(&pty, &plans, plan_id, agent, "") {
-                if let Err(e) = reg.apply_result(agent, &wt.path) {
-                    errors.insert(agent.clone(), e.to_string());
-                }
-            } else {
-                reg.finish(agent, &wt.path, "session lost")
-                    .map_err(|e| e.to_string())?;
+            if let Err(e) = reg.apply_result(agent, &wt.path) {
+                errors.insert(agent.clone(), e.to_string());
             }
         }
         store
@@ -647,6 +746,24 @@ fn workspace_remove(store: State<'_, Store>, id: i64) -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// No PTY survives a restart: finish every task still marked running with the result it left,
+/// or as lost.
+fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
+    for ws in store.list_workspaces().map_err(|e| e.to_string())? {
+        let root = ws.root();
+        for team in plans.open_teams(store, ws.id).map_err(|e| e.to_string())? {
+            let reg = registry(store, &root, team.id, &team.plan)?;
+            for (agent, wt) in &team.worktrees {
+                if reg.status(agent).map_err(|e| e.to_string())? == Some(TaskStatus::Running) {
+                    reg.finish(agent, &wt.path, "session lost (INA restarted)")
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -656,6 +773,9 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(Store::open(&dir.join("ina.db"))?);
+            if let Err(e) = recover_lost_tasks(&app.state::<Store>(), &app.state::<PlanStore>()) {
+                eprintln!("recovering tasks failed: {e}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -683,7 +803,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_id;
+    use super::*;
 
     #[test]
     fn session_id_validation() {
@@ -691,5 +811,67 @@ mod tests {
         for bad in ["", "../x", "a b", "a;b", &"x".repeat(65)] {
             assert!(valid_id(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn restart_finishes_orphaned_running_tasks() {
+        let dir = std::env::temp_dir().join(format!("ina-recover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::in_memory().unwrap();
+        let plans = PlanStore::default();
+        let ws = store.add_workspace(&dir).unwrap();
+        let plan: Plan = serde_json::from_value(serde_json::json!({
+            "summary": "g", "mode": "parallel",
+            "agents": [
+                {"id": "a", "name": "A", "role": "r", "scope": "s", "task": "t",
+                 "acceptance": ["x"], "dependsOn": []},
+                {"id": "b", "name": "B", "role": "r", "scope": "s", "task": "t",
+                 "acceptance": ["x"], "dependsOn": []}
+            ]
+        }))
+        .unwrap();
+        let id = plans.insert(&store, ws.id, &plan).unwrap();
+        let wt = |n: &str| worktree::Worktree {
+            path: dir.join(n),
+            branch: format!("ina/r/{n}"),
+        };
+        let map = [("a".to_string(), wt("a")), ("b".to_string(), wt("b"))]
+            .into_iter()
+            .collect();
+        plans.approve(&store, id, &map).unwrap();
+        let root = ws.root();
+        let reg = registry(&store, &root, id, &plan).unwrap();
+        reg.register(&["a", "b"]).unwrap();
+        reg.transition("a", TaskStatus::Running, None, None)
+            .unwrap();
+        std::fs::create_dir_all(dir.join("b/.ina")).unwrap();
+        std::fs::write(
+            dir.join("b/.ina/result.json"),
+            r#"{"status":"done","summary":"ok"}"#,
+        )
+        .unwrap();
+        reg.transition("b", TaskStatus::Running, None, None)
+            .unwrap();
+
+        recover_lost_tasks(&store, &plans).unwrap();
+        let tasks = store.tasks(reg.team).unwrap();
+        assert_eq!(tasks[0].status, "failed");
+        assert!(
+            tasks[0]
+                .detail
+                .as_deref()
+                .unwrap()
+                .contains("INA restarted")
+        );
+        assert_eq!(
+            (tasks[1].status.as_str(), tasks[1].summary.as_deref()),
+            ("done", Some("ok"))
+        );
+
+        // Running again clears the previous run's summary.
+        reg.transition("b", TaskStatus::Running, None, None)
+            .unwrap();
+        assert_eq!(store.tasks(reg.team).unwrap()[1].summary, None);
     }
 }

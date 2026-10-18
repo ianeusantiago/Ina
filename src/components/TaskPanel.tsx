@@ -17,9 +17,8 @@ const tone: Record<TaskStatus, string> = {
 /** SQLite `datetime('now')` is UTC without a zone marker. */
 const localTime = (utc: string) => new Date(`${utc.replace(" ", "T")}Z`).toLocaleString();
 
-/** Shared task registry of a team: status comes from the backend (process + result.json). */
-export function TaskPanel({ planId, agents }: { planId: number; agents: AgentSpec[] }) {
-  const { t } = useTranslation();
+/** Polls the team's task registry (status comes from the backend: process + result.json). */
+export function useTeamTasks(planId: number) {
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +40,25 @@ export function TaskPanel({ planId, agents }: { planId: number; agents: AgentSpe
     };
   }, [refresh]);
 
+  return { tasks, error, refresh };
+}
+
+export function TaskPanel({
+  agents,
+  tasks,
+  error,
+  onRefresh,
+  autoStart,
+  onAutoStart,
+}: {
+  agents: AgentSpec[];
+  tasks: TaskView[];
+  error: string | null;
+  onRefresh: () => void;
+  autoStart: boolean;
+  onAutoStart: (on: boolean) => void;
+}) {
+  const { t } = useTranslation();
   const byId = new Map(agents.map((a) => [a.id, a]));
 
   return (
@@ -49,10 +67,18 @@ export function TaskPanel({ planId, agents }: { planId: number; agents: AgentSpe
         <span className="font-semibold uppercase tracking-wide text-muted">{t("tasks.title")}</span>
         <button
           className="rounded border border-line px-2 py-0.5 hover:bg-line"
-          onClick={() => void refresh()}
+          onClick={onRefresh}
         >
           {t("tasks.refresh")}
         </button>
+        <label className="flex items-center gap-1 text-muted">
+          <input
+            type="checkbox"
+            checked={autoStart}
+            onChange={(e) => onAutoStart(e.target.checked)}
+          />
+          {t("tasks.autoStart")}
+        </label>
       </div>
       {error && (
         <p role="alert" className="break-words text-red-400">
