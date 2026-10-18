@@ -382,19 +382,16 @@ async fn team_integrate(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<Vec<IntegrateStep>, String> {
-    let (git, team, _) = team_git(&store, &plans, plan_id)?;
-    // Teams approved before the registry existed have no rows: they are not gated.
-    let task_statuses = store
-        .tasks(to_team(plan_id)?)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|t| {
-            Ok((
-                t.agent_id,
-                TaskStatus::parse(&t.status).map_err(|e| e.to_string())?,
-            ))
-        })
-        .collect::<Result<std::collections::HashMap<_, _>, String>>()?;
+    let (git, team, approved) = team_git(&store, &plans, plan_id)?;
+    // Every open team has registry rows (startup backfills teams approved before it existed).
+    let root = workspace_root(&store, approved.workspace_id)?;
+    let task_statuses: HashMap<String, TaskStatus> =
+        registry(&store, &root, plan_id, &approved.plan)?
+            .tasks()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|t| (t.agent_id, t.status))
+            .collect();
     blocking(move || {
         if !git.root_is_clean().map_err(|e| e.to_string())? {
             return Err("workspace has uncommitted changes; commit or stash them first".into());
@@ -407,7 +404,7 @@ async fn team_integrate(
             }
             let done = task_statuses
                 .get(id)
-                .is_none_or(|st| *st == TaskStatus::Done);
+                .is_some_and(|st| *st == TaskStatus::Done);
             if s.ahead > 0 && !done {
                 return Err(format!("agent {id} is not done (verified) yet"));
             }
@@ -1362,6 +1359,11 @@ fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
         let root = ws.root();
         for team in plans.open_teams(store, ws.id).map_err(|e| e.to_string())? {
             let reg = registry(store, &root, team.id, &team.plan)?;
+            if reg.tasks().map_err(|e| e.to_string())?.is_empty() {
+                // Approved before the registry existed: start every agent as pending.
+                let agents: Vec<&str> = team.plan.agents.iter().map(|a| a.id.as_str()).collect();
+                reg.register(&agents).map_err(|e| e.to_string())?;
+            }
             for (agent, wt) in &team.worktrees {
                 if reg.status(agent).map_err(|e| e.to_string())? == Some(TaskStatus::Running) {
                     reg.finish(agent, &wt.path, "session lost (INA restarted)")
@@ -1490,5 +1492,17 @@ mod tests {
         reg.transition("b", TaskStatus::Running, None, None)
             .unwrap();
         assert_eq!(store.tasks(reg.team).unwrap()[1].summary, None);
+
+        // A team approved before the registry existed gets pending rows on startup.
+        let legacy = plans.insert(&store, ws.id, &plan).unwrap();
+        plans.approve(&store, legacy, &map).unwrap();
+        recover_lost_tasks(&store, &plans).unwrap();
+        let rows = store.tasks(to_team(legacy).unwrap()).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|t| (t.agent_id.as_str(), t.status.as_str()))
+                .collect::<Vec<_>>(),
+            [("a", "pending"), ("b", "pending")]
+        );
     }
 }
