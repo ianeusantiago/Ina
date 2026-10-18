@@ -166,6 +166,15 @@ pub struct Prerequisite {
     pub summary: Option<String>,
 }
 
+/// How the previous run of this task ended, so a rerun can address it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviousAttempt {
+    pub status: TaskStatus,
+    pub summary: Option<String>,
+    pub detail: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskFile<'a> {
@@ -174,6 +183,8 @@ struct TaskFile<'a> {
     agent: &'a AgentSpec,
     branch: &'a str,
     prerequisites: &'a [Prerequisite],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_attempt: Option<&'a PreviousAttempt>,
     result_file: String,
     result_format: serde_json::Value,
 }
@@ -198,6 +209,13 @@ pub fn archive_result(worktree: &Path) -> Result<(), TaskError> {
     Ok(())
 }
 
+/// The `previousAttempt` already recorded in the agent's `task.json`, if any.
+pub fn recorded_previous(worktree: &Path) -> Option<PreviousAttempt> {
+    let text = fs::read_to_string(ina_dir(worktree).join(TASK_FILE)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    serde_json::from_value(v.get("previousAttempt")?.clone()).ok()
+}
+
 /// Write (or refresh) the agent's assignment.
 pub fn write_task(
     worktree: &Path,
@@ -206,6 +224,7 @@ pub fn write_task(
     agent: &AgentSpec,
     branch: &str,
     prerequisites: &[Prerequisite],
+    previous: Option<&PreviousAttempt>,
 ) -> Result<(), TaskError> {
     let dir = ina_dir(worktree);
     fs::create_dir_all(&dir)?;
@@ -215,6 +234,7 @@ pub fn write_task(
         agent,
         branch,
         prerequisites,
+        previous_attempt: previous,
         result_file: format!("{INA_DIR}/{RESULT_FILE}"),
         result_format: result_format(),
     };
@@ -493,13 +513,20 @@ mod tests {
             branch: "ina/r/db".into(),
             summary: Some("schema".into()),
         }];
-        write_task(&dir, 7, &plan(), &agent(), "ina/r/api", &pre).unwrap();
+        let prev = PreviousAttempt {
+            status: TaskStatus::Failed,
+            summary: None,
+            detail: Some("verification failed: `pytest` exit 1".into()),
+        };
+        write_task(&dir, 7, &plan(), &agent(), "ina/r/api", &pre, Some(&prev)).unwrap();
         let task: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(".ina/task.json")).unwrap()).unwrap();
         assert_eq!(task["teamId"], 7);
         assert_eq!(task["agent"]["id"], "api");
         assert_eq!(task["resultFile"], ".ina/result.json");
         assert_eq!(task["prerequisites"][0]["branch"], "ina/r/db");
+        assert_eq!(task["previousAttempt"]["status"], "failed");
+        assert_eq!(recorded_previous(&dir), Some(prev));
         assert!(read_result(&dir).unwrap().is_none());
         assert!(dir.join(".ina/result.prev.json").exists());
     }

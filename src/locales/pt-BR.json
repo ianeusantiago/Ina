@@ -74,7 +74,15 @@
     "removed": "removido",
     "untracked": "não rastreados (fora do merge): {{files}}",
     "forceCleanup": "Forçar remoção",
-    "failed": "falhou, integração parada (merges anteriores mantidos): {{error}}"
+    "failed": "falhou, integração parada (merges anteriores mantidos): {{error}}",
+    "preview": {
+      "title": "Prévia (nada foi alterado):",
+      "clean": "merge limpo",
+      "skipped": "sem commits novos",
+      "conflict": "conflito previsto em {{files}}; a integração pararia aqui",
+      "notReached": "não seria tentado (para no conflito)",
+      "overlap": "{{file}} foi alterado por {{agents}}: revise a combinação"
+    }
   },
   "tasks": {
     "title": "Tarefas",

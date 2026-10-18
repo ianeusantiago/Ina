@@ -74,7 +74,15 @@
     "removed": "removed",
     "untracked": "untracked (not merged): {{files}}",
     "forceCleanup": "Force removal",
-    "failed": "failed, integration stopped (earlier merges kept): {{error}}"
+    "failed": "failed, integration stopped (earlier merges kept): {{error}}",
+    "preview": {
+      "title": "Preview (nothing was changed):",
+      "clean": "clean merge",
+      "skipped": "no new commits",
+      "conflict": "predicted conflict in {{files}}; integration would stop here",
+      "notReached": "would not be attempted (stops at the conflict)",
+      "overlap": "{{file}} was changed by {{agents}}: review how they combine"
+    }
   },
   "tasks": {
     "title": "Tasks",

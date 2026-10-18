@@ -327,7 +327,7 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
          are met. To ask the user something, report progress or hand off to another agent, write \
          `.ina/outbox/<name>.json`: {{\"type\": \"question\" | \"progress\" | \"blocked\" | \
          \"handoff\", \"text\": \"...\", \"to\": \"<agent id, optional>\"}}. Answers and \
-         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it.",
+         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it. If `.ina/task.json` has          `previousAttempt`, an earlier run ended that way: fix that first.",
         agent.name,
         agent.role,
         plan.summary,

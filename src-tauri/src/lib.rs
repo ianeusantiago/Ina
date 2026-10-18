@@ -239,6 +239,101 @@ async fn team_status(
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+enum PreviewStep {
+    #[serde(rename_all = "camelCase")]
+    Clean { agent_id: String },
+    #[serde(rename_all = "camelCase")]
+    Skipped { agent_id: String },
+    #[serde(rename_all = "camelCase")]
+    Conflict {
+        agent_id: String,
+        files: Vec<String>,
+    },
+    /// After a predicted conflict integration would stop, so this branch is not attempted.
+    #[serde(rename_all = "camelCase")]
+    NotReached { agent_id: String },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Overlap {
+    file: String,
+    agents: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IntegrationPreview {
+    steps: Vec<PreviewStep>,
+    /// Files changed by more than one agent (possible semantic conflicts even if they merge).
+    overlaps: Vec<Overlap>,
+}
+
+/// What `team_integrate` would do, computed without changing anything.
+#[tauri::command]
+async fn team_preview(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<IntegrationPreview, String> {
+    let (git, team) = team_git(&store, &plans, plan_id)?;
+    let approved = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    blocking(move || {
+        let mut ahead = Vec::new();
+        let mut by_file: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for (id, wt) in &team {
+            let s = git.status(wt).map_err(|e| e.to_string())?;
+            let prereq_branches: Vec<String> = approved
+                .plan
+                .prerequisites(id)
+                .into_iter()
+                .filter_map(|p| approved.worktrees.get(p).map(|w| w.branch.clone()))
+                .collect();
+            let own = git
+                .own_files(&wt.branch, &prereq_branches)
+                .map_err(|e| e.to_string())?;
+            for f in own {
+                by_file.entry(f).or_default().push(id.clone());
+            }
+            if s.ahead > 0 {
+                ahead.push((id.clone(), wt.branch.clone()));
+            }
+        }
+        let branches: Vec<String> = ahead.iter().map(|(_, b)| b.clone()).collect();
+        let results = git.preview_merges(&branches).map_err(|e| e.to_string())?;
+        let mut steps = Vec::new();
+        for (id, _) in &team {
+            let Some(i) = ahead.iter().position(|(a, _)| a == id) else {
+                steps.push(PreviewStep::Skipped {
+                    agent_id: id.clone(),
+                });
+                continue;
+            };
+            steps.push(match results.get(i) {
+                Some(None) => PreviewStep::Clean {
+                    agent_id: id.clone(),
+                },
+                Some(Some(files)) => PreviewStep::Conflict {
+                    agent_id: id.clone(),
+                    files: files.clone(),
+                },
+                None => PreviewStep::NotReached {
+                    agent_id: id.clone(),
+                },
+            });
+        }
+        let overlaps = by_file
+            .into_iter()
+            .filter(|(_, a)| a.len() > 1)
+            .map(|(file, agents)| Overlap { file, agents })
+            .collect();
+        Ok(IntegrationPreview { steps, overlaps })
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 enum IntegrateStep {
     #[serde(rename_all = "camelCase")]
     Merged { agent_id: String },
@@ -382,7 +477,7 @@ async fn plan_approve(
     .await?;
     let team_id = to_team(plan_id)?;
     for (agent, wt) in plan.agents.iter().zip(&team) {
-        if let Err(e) = tasks::write_task(&wt.path, team_id, &plan, agent, &wt.branch, &[]) {
+        if let Err(e) = tasks::write_task(&wt.path, team_id, &plan, agent, &wt.branch, &[], None) {
             git.remove_team(&team);
             return Err(e.to_string());
         }
@@ -466,13 +561,35 @@ async fn pty_spawn_agent(
         if !waiting.is_empty() {
             return Err(format!("waiting for: {}", waiting.join(", ")));
         }
-        // A finished task is being run again: set the old result aside.
-        if !matches!(
-            reg.status(&agent_id).map_err(|e| e.to_string())?,
-            None | Some(TaskStatus::Pending | TaskStatus::Running)
-        ) {
+        // A finished task is being run again: set the old result aside and tell the agent how
+        // the previous run ended.
+        let row = store
+            .tasks(reg.team)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|t| t.agent_id == agent_id);
+        let previous = match row {
+            Some(t) => {
+                let status = TaskStatus::parse(&t.status).map_err(|e| e.to_string())?;
+                let finished = !matches!(
+                    status,
+                    TaskStatus::Pending | TaskStatus::Running | TaskStatus::Verifying
+                );
+                finished.then_some(tasks::PreviousAttempt {
+                    status,
+                    summary: t.summary,
+                    detail: t.detail,
+                })
+            }
+            None => None,
+        };
+        let previous = if previous.is_some() {
             tasks::archive_result(&wt.path).map_err(|e| e.to_string())?;
-        }
+            previous
+        } else {
+            // Same run reopened (e.g. a remounted terminal): keep what the first spawn recorded.
+            tasks::recorded_previous(&wt.path)
+        };
         let prerequisites = merge_prerequisites(&store, &team, &agent_id, wt).await?;
         tasks::write_task(
             &wt.path,
@@ -481,6 +598,7 @@ async fn pty_spawn_agent(
             agent,
             &wt.branch,
             &prerequisites,
+            previous.as_ref(),
         )
         .map_err(|e| e.to_string())?;
         let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
@@ -1083,7 +1201,8 @@ pub fn run() {
             claude_setup,
             team_messages,
             team_send,
-            message_decide
+            message_decide,
+            team_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

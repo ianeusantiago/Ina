@@ -63,6 +63,19 @@ export interface CleanupResult {
 }
 
 export const teamStatus = (planId: number) => invoke<AgentBranch[]>("team_status", { planId });
+export type PreviewStep =
+  | { kind: "clean"; agentId: string }
+  | { kind: "skipped"; agentId: string }
+  | { kind: "conflict"; agentId: string; files: string[] }
+  | { kind: "notReached"; agentId: string };
+
+export interface IntegrationPreview {
+  steps: PreviewStep[];
+  overlaps: { file: string; agents: string[] }[];
+}
+
+export const teamPreview = (planId: number) =>
+  invoke<IntegrationPreview>("team_preview", { planId });
 export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
