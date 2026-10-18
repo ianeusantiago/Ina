@@ -20,7 +20,7 @@ use serde::Serialize;
 use store::{Store, Workspace};
 use tasks::{Registry, TaskStatus};
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -1040,15 +1040,16 @@ const MSG_UNDELIVERED: &str = "undelivered";
 #[tauri::command]
 async fn team_messages(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<MessageView>, String> {
     blocking(move || {
-        let team = sync_messages(&app, plan_id)?;
+        let (team, _) = sync_messages(&app, plan_id)?;
         list_messages(&app.state::<Store>(), team)
     })
     .await
 }
 
 /// Ingest every outbox of the team (orchestrator root + agent worktrees) into the store;
-/// returns the registry's team id.
-fn sync_messages(app: &tauri::AppHandle, plan_id: u64) -> Result<i64, String> {
+/// returns the registry's team id and how many messages arrived.
+fn sync_messages(app: &tauri::AppHandle, plan_id: u64) -> Result<(i64, usize), String> {
+    let mut arrived = 0;
     let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
     let (team, root) = approved_team(&store, &plans, plan_id)?;
     let reg = registry(&store, &root, plan_id, &team.plan)?;
@@ -1061,7 +1062,7 @@ fn sync_messages(app: &tauri::AppHandle, plan_id: u64) -> Result<i64, String> {
     );
     for (from, dir) in sources {
         let is_orch = from == plan::ORCHESTRATOR_ID;
-        messages::ingest(dir, is_orch, &agents, |got| {
+        arrived += messages::ingest(dir, is_orch, &agents, |got| {
             let (kind, text, to, status) = match &got.message {
                 Ok(m) => (
                     m.kind.as_str(),
@@ -1087,9 +1088,10 @@ fn sync_messages(app: &tauri::AppHandle, plan_id: u64) -> Result<i64, String> {
             reg.log_event(from, "message", Some(&format!("{kind} ({status})")));
             Ok(())
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .len();
     }
-    Ok(reg.team)
+    Ok((reg.team, arrived))
 }
 
 fn list_messages(store: &Store, team: i64) -> Result<Vec<MessageView>, String> {
@@ -1316,6 +1318,7 @@ fn tick_loop(app: &tauri::AppHandle) {
         eprintln!("recovering tasks failed: {e}");
     }
     let mut last_errors = std::collections::HashMap::<u64, String>::new();
+    let mut last_tasks = HashMap::<u64, String>::new();
     loop {
         std::thread::sleep(TICK);
         reap_timeouts(app);
@@ -1335,7 +1338,17 @@ fn tick_loop(app: &tauri::AppHandle) {
                 }
             };
             for team in teams {
-                let result = sync_tasks(app, team.id).and_then(|_| sync_messages(app, team.id));
+                let result = sync_tasks(app, team.id).and_then(|tasks| {
+                    let (_, arrived) = sync_messages(app, team.id)?;
+                    let snapshot = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
+                    let changed = last_tasks.get(&team.id) != Some(&snapshot);
+                    last_tasks.insert(team.id, snapshot);
+                    if changed || arrived > 0 {
+                        // Open panels refresh now instead of waiting for their fallback poll.
+                        app.emit(TEAM_CHANGED, team.id).map_err(|e| e.to_string())?;
+                    }
+                    Ok(())
+                });
                 match result {
                     // Logged once per distinct error, not every tick.
                     Err(e) if last_errors.get(&team.id) != Some(&e) => {
@@ -1351,6 +1364,9 @@ fn tick_loop(app: &tauri::AppHandle) {
         }
     }
 }
+
+/// Event (payload: plan id) emitted when a team's tasks or messages changed.
+const TEAM_CHANGED: &str = "team-changed";
 
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
