@@ -35,5 +35,25 @@
     "untrusted": "Claude Code does not trust this folder yet, so the agents would stop at the trust prompt.",
     "untrustedHint": "Open a terminal in the folder, run claude, choose \"Yes, I trust this folder\" and exit. Then click Check again.",
     "recheck": "Check again"
+  },
+  "integration": {
+    "title": "Integration",
+    "status": "Branch status",
+    "integrate": "Integrate",
+    "cleanup": "Clean up worktrees",
+    "confirm": {
+      "integrate": "Merge the agents' branches into the workspace's current branch?",
+      "cleanup": "Stop the agent terminals first. Remove the worktrees and already-merged branches?"
+    },
+    "yes": "Confirm",
+    "cancel": "Cancel",
+    "ahead_one": "{{count}} commit ahead",
+    "ahead_other": "{{count}} commits ahead",
+    "dirty": "uncommitted changes",
+    "merged": "merged",
+    "skipped": "no new commits",
+    "conflict": "conflict in {{files}}; merge aborted, nothing changed",
+    "removed": "removed",
+    "untracked": "untracked (not merged): {{files}}"
   }
 }

@@ -8,6 +8,7 @@ import {
   workspaceTrusted,
   type PlanDraft,
 } from "../lib/team";
+import { IntegrationBar } from "./IntegrationBar";
 import { TerminalPane } from "./TerminalPane";
 
 type Stage =
@@ -86,19 +87,22 @@ export function TeamPanel({
     const count = p.agents.length + 1;
     const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
     return (
-      <div
-        className="grid h-full gap-2"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-      >
-        <AgentTerminal
-          planId={id}
-          agentId={ORCHESTRATOR_ID}
-          title={t("team.orchestrator")}
-          subtitle={p.summary}
-        />
-        {p.agents.map((a) => (
-          <AgentTerminal key={a.id} planId={id} agentId={a.id} title={a.name} subtitle={a.role} />
-        ))}
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <IntegrationBar planId={id} />
+        <div
+          className="grid min-h-0 flex-1 gap-2"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+        >
+          <AgentTerminal
+            planId={id}
+            agentId={ORCHESTRATOR_ID}
+            title={t("team.orchestrator")}
+            subtitle={p.summary}
+          />
+          {p.agents.map((a) => (
+            <AgentTerminal key={a.id} planId={id} agentId={a.id} title={a.name} subtitle={a.role} />
+          ))}
+        </div>
       </div>
     );
   }

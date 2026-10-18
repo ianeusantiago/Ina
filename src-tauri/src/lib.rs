@@ -139,14 +139,8 @@ fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool,
     folder_trusted(&root)
 }
 
-/// Approve a plan: create one git worktree + branch per agent (all or nothing), then record it.
-#[tauri::command]
-async fn plan_approve(
-    store: State<'_, Store>,
-    plans: State<'_, PlanStore>,
-    plan_id: u64,
-) -> Result<(), String> {
-    let (workspace_id, plan) = plans.pending(plan_id).map_err(|e| e.to_string())?;
+/// Git runner for a workspace root (program resolved by the policy, Claude env stripped).
+fn git_for(store: &Store, workspace_id: i64) -> Result<worktree::Git, String> {
     let root = store
         .get_workspace(workspace_id)
         .map_err(|e| e.to_string())?
@@ -155,7 +149,150 @@ async fn plan_approve(
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
     let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
-    let git = worktree::Git::new(exe, root, env_remove);
+    Ok(worktree::Git::new(exe, root, env_remove))
+}
+
+/// Approved team plus its git runner, with agents in dependency order.
+fn team_git(
+    store: &Store,
+    plans: &PlanStore,
+    plan_id: u64,
+) -> Result<(worktree::Git, Vec<(String, worktree::Worktree)>), String> {
+    let team = plans.approved(plan_id).map_err(|e| e.to_string())?;
+    let git = git_for(store, team.workspace_id)?;
+    let ordered = team
+        .plan
+        .topo_order()
+        .into_iter()
+        .filter_map(|a| team.worktrees.get(&a.id).map(|w| (a.id.clone(), w.clone())))
+        .collect();
+    Ok((git, ordered))
+}
+
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentBranch {
+    agent_id: String,
+    status: worktree::BranchStatus,
+}
+
+#[tauri::command]
+async fn team_status(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<Vec<AgentBranch>, String> {
+    let (git, team) = team_git(&store, &plans, plan_id)?;
+    blocking(move || {
+        team.into_iter()
+            .map(|(agent_id, wt)| {
+                let status = git.status(&wt).map_err(|e| e.to_string())?;
+                Ok(AgentBranch { agent_id, status })
+            })
+            .collect()
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum IntegrateStep {
+    #[serde(rename_all = "camelCase")]
+    Merged { agent_id: String },
+    #[serde(rename_all = "camelCase")]
+    Skipped { agent_id: String },
+    #[serde(rename_all = "camelCase")]
+    Conflict {
+        agent_id: String,
+        files: Vec<String>,
+    },
+}
+
+/// Merge every agent branch into the workspace HEAD in dependency order. Refuses if the root
+/// or any agent has uncommitted changes; stops (after `merge --abort`) at the first conflict.
+#[tauri::command]
+async fn team_integrate(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<Vec<IntegrateStep>, String> {
+    let (git, team) = team_git(&store, &plans, plan_id)?;
+    blocking(move || {
+        if !git.root_is_clean().map_err(|e| e.to_string())? {
+            return Err("workspace has uncommitted changes; commit or stash them first".into());
+        }
+        let mut statuses = Vec::new();
+        for (id, wt) in &team {
+            let s = git.status(wt).map_err(|e| e.to_string())?;
+            if s.dirty {
+                return Err(format!("agent {id} has uncommitted changes"));
+            }
+            statuses.push(s);
+        }
+        let mut steps = Vec::new();
+        for ((agent_id, wt), s) in team.into_iter().zip(statuses) {
+            if s.ahead == 0 {
+                steps.push(IntegrateStep::Skipped { agent_id });
+                continue;
+            }
+            match git.merge(&wt.branch).map_err(|e| e.to_string())? {
+                worktree::MergeOutcome::Merged => steps.push(IntegrateStep::Merged { agent_id }),
+                worktree::MergeOutcome::Conflict { files } => {
+                    steps.push(IntegrateStep::Conflict { agent_id, files });
+                    break;
+                }
+            }
+        }
+        Ok(steps)
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanupResult {
+    agent_id: String,
+    error: Option<String>,
+}
+
+/// Remove agent worktrees and merged branches. Git refuses dirty worktrees and unmerged
+/// branches, so no work is lost; sessions still running in a worktree make removal fail.
+#[tauri::command]
+async fn team_cleanup(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<Vec<CleanupResult>, String> {
+    let (git, team) = team_git(&store, &plans, plan_id)?;
+    blocking(move || {
+        Ok(team
+            .into_iter()
+            .map(|(agent_id, wt)| CleanupResult {
+                agent_id,
+                error: git.cleanup(&wt).err().map(|e| e.to_string()),
+            })
+            .collect())
+    })
+    .await
+}
+
+/// Approve a plan: create one git worktree + branch per agent (all or nothing), then record it.
+#[tauri::command]
+async fn plan_approve(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<(), String> {
+    let (workspace_id, plan) = plans.pending(plan_id).map_err(|e| e.to_string())?;
+    let git = git_for(&store, workspace_id)?;
     // Run id: unique per approval and across restarts, so branch names never collide.
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -209,11 +346,9 @@ fn pty_spawn_agent(
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     // Orchestrator works in the workspace root; each agent in its own worktree.
-    let (prompt, cwd) = if agent_id == plan::ORCHESTRATOR_ID {
-        (
-            plan::orchestrator_prompt(&team.plan, &team.worktrees),
-            root.clone(),
-        )
+    let (args, cwd) = if agent_id == plan::ORCHESTRATOR_ID {
+        let prompt = plan::orchestrator_prompt(&team.plan, &team.worktrees);
+        (plan::orchestrator_args(prompt), root.clone())
     } else {
         let agent = team.plan.agent(&agent_id).map_err(|e| e.to_string())?;
         let wt = team
@@ -221,17 +356,10 @@ fn pty_spawn_agent(
             .get(&agent_id)
             .ok_or("agent has no worktree")?;
         let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
-        (prompt, wt.path.clone())
+        (vec![prompt], wt.path.clone())
     };
-    let mut spec = policy::authorize(
-        Program::Claude,
-        vec![prompt],
-        &root,
-        &cwd,
-        pty.count(),
-        &path_var,
-    )
-    .map_err(|e| e.to_string())?;
+    let mut spec = policy::authorize(Program::Claude, args, &root, &cwd, pty.count(), &path_var)
+        .map_err(|e| e.to_string())?;
     spec.cols = cols.max(1);
     spec.rows = rows.max(1);
     pty.spawn(&id, spec, channel_sink(on_event))
@@ -294,7 +422,10 @@ pub fn run() {
             workspace_list,
             workspace_add,
             workspace_remove,
-            workspace_trusted
+            workspace_trusted,
+            team_status,
+            team_integrate,
+            team_cleanup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

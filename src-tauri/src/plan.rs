@@ -116,6 +116,22 @@ impl Plan {
         Ok(())
     }
 
+    /// Agents in dependency order (plan order among those ready). Assumes `validate` passed.
+    pub fn topo_order(&self) -> Vec<&AgentSpec> {
+        let mut done: HashSet<&str> = HashSet::new();
+        let mut out = Vec::new();
+        while out.len() < self.agents.len() {
+            let next = self.agents.iter().find(|a| {
+                !done.contains(a.id.as_str())
+                    && a.depends_on.iter().all(|d| done.contains(d.as_str()))
+            });
+            let Some(a) = next else { break }; // cycle: validate() rejects these
+            done.insert(&a.id);
+            out.push(a);
+        }
+        out
+    }
+
     fn has_cycle(&self) -> bool {
         // Kahn's algorithm: a cycle leaves nodes with unresolved in-degree.
         let mut indeg: HashMap<&str, usize> = self
@@ -187,8 +203,10 @@ pub fn orchestrator_prompt(plan: &Plan, worktrees: &HashMap<String, Worktree>) -
         "You are the INA orchestrator. The user approved this plan ({:?} mode): {}\n\nTeam:\n{}\n\n\
          Each agent runs in its own terminal and commits to its own branch in its own git \
          worktree; their changes do not appear in your checkout until integrated. Monitor the \
-         branches (e.g. `git log HEAD..<branch>`), validate results against the acceptance \
-         criteria, integrate, and report honestly. Do not do the agents' work yourself.",
+         branches read-only (e.g. `git log HEAD..<branch>`, `git diff HEAD...<branch>`), \
+         validate results against the acceptance criteria, and report honestly whether the team \
+         is ready to integrate. Never merge, rebase, reset or commit yourself: the user \
+         integrates through INA after reviewing. Do not do the agents' work yourself.",
         plan.mode,
         plan.summary,
         team.join("\n")
@@ -215,6 +233,28 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
         },
         branch
     )
+}
+
+/// Tools the orchestrator may not use: it reviews, the user integrates through INA.
+const ORCHESTRATOR_DENIED: &[&str] = &[
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "Bash(git merge:*)",
+    "Bash(git rebase:*)",
+    "Bash(git reset:*)",
+    "Bash(git commit:*)",
+    "Bash(git push:*)",
+    "Bash(git cherry-pick:*)",
+    "Bash(git checkout:*)",
+    "Bash(git switch:*)",
+];
+
+/// Prompt first: `--disallowedTools` is variadic and would swallow a trailing prompt.
+pub fn orchestrator_args(prompt: String) -> Vec<String> {
+    let mut args = vec![prompt, "--disallowedTools".to_string()];
+    args.extend(ORCHESTRATOR_DENIED.iter().map(|s| s.to_string()));
+    args
 }
 
 /// Args for the non-interactive planner run. No tools, no MCP: it can only answer.
@@ -406,6 +446,17 @@ mod tests {
             mode: Mode::Parallel,
             agents,
         }
+    }
+
+    #[test]
+    fn topo_order_respects_dependencies() {
+        let p = plan(vec![
+            agent("ui", &["api"]),
+            agent("docs", &[]),
+            agent("api", &[]),
+        ]);
+        let ids: Vec<_> = p.topo_order().iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, ["docs", "api", "ui"]);
     }
 
     #[test]

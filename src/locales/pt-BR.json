@@ -35,5 +35,25 @@
     "untrusted": "O Claude Code ainda não confia nesta pasta, e os agentes ficariam parados na pergunta de confiança.",
     "untrustedHint": "Abra um terminal na pasta, rode claude, escolha \"Yes, I trust this folder\" e saia. Depois clique em Verificar de novo.",
     "recheck": "Verificar de novo"
+  },
+  "integration": {
+    "title": "Integração",
+    "status": "Status das branches",
+    "integrate": "Integrar",
+    "cleanup": "Limpar worktrees",
+    "confirm": {
+      "integrate": "Fazer merge das branches dos agentes na branch atual do workspace?",
+      "cleanup": "Pare os terminais dos agentes antes. Remover os worktrees e as branches já integradas?"
+    },
+    "yes": "Confirmar",
+    "cancel": "Cancelar",
+    "ahead_one": "{{count}} commit à frente",
+    "ahead_other": "{{count}} commits à frente",
+    "dirty": "mudanças não commitadas",
+    "merged": "integrado",
+    "skipped": "sem commits novos",
+    "conflict": "conflito em {{files}}; merge abortado, nada foi alterado",
+    "removed": "removido",
+    "untracked": "não rastreados (fora do merge): {{files}}"
   }
 }
