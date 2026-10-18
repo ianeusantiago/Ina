@@ -1,87 +1,87 @@
 # INA
 
-[Português](README.pt-BR.md)
+[English](README.en.md)
 
-Desktop app (Windows 11 first) that orchestrates a team of AI coding agents: one orchestrator plus N agents, each running the real Claude Code CLI in its own terminal and its own git worktree.
+App desktop (Windows 11 primeiro) que orquestra uma equipe de agentes de IA para código: um orquestrador mais N agentes, cada um rodando o Claude Code CLI de verdade no próprio terminal e no próprio git worktree.
 
-> Status: Phase 2 (reliable orchestration). Windows only so far. Expect rough edges.
+> Status: Fase 2 (orquestração confiável). Por enquanto só Windows. Ainda há arestas.
 
-## What it does
+## O que faz
 
-1. **Describe the team in natural language.** INA asks Claude Code (`claude -p` with a JSON schema) for a structured plan: agents, roles, scope, task, acceptance criteria, dependencies, parallel or sequential.
-2. **Review and approve.** Nothing runs before approval. On approval INA creates one git worktree and branch per agent (`.ina/worktrees/<run>-<agent>`, branch `ina/<run>/<agent>`).
-3. **N+1 real terminals.** Orchestrator in the workspace root (no file edits, no git writes), each agent in its worktree. Terminals are real PTYs (ConPTY), not simulations.
-4. **Dependency-aware scheduling.** An agent starts only when its prerequisites are done (sequential mode: everyone before it). Before it starts, INA merges the prerequisites' branches into its worktree and lists them in its `task.json`. Dependents of a failed agent become blocked and are released when it recovers. Optional auto-start; 60-minute limit per agent.
-5. **Shared task registry.** Each agent gets `.ina/task.json` and reports in `.ina/result.json`. INA tracks status in SQLite (`pending → running → verifying → done`, or `failed` / `blocked` / `cancelled`) and appends every change to `.ina/events.jsonl`.
-6. **Result verification.** A reported "done" is only a claim: INA runs the agent's verification commands (approved with the plan; `cargo`, `node`, `python` or `pytest` only) on a clean checkout of what it committed and compares the files it declared with what its branch changed. Without checks a task is marked "unverified".
-7. **Structured messages.** Agents write questions, progress, blockers and handoffs to `.ina/outbox/`; you answer from the Messages panel. The orchestrator proposes instructions the same way, and you approve them before they are delivered. Delivered messages land in the agent's `.ina/inbox/`; on your request INA types one fixed notice line into its terminal.
-8. **Controlled integration.** A dry run (`git merge-tree`) shows clean merges, predicted conflicts and files touched by more than one agent before you confirm. Only done (verified or explicitly unverified) agents are merged, with `--no-ff` in dependency order; abort on conflict; cleanup of worktrees and merged branches. Uncommitted or unmerged work is never deleted.
-9. **Recovery.** Teams persist; after a restart, tasks whose session was lost are closed with whatever result they left. Re-running a task tells the agent how the previous attempt ended (`previousAttempt`).
+1. **Descreva a equipe em linguagem natural.** O INA pede ao Claude Code (`claude -p` com schema JSON) um plano estruturado: agentes, papéis, escopo, tarefa, critérios de aceite, dependências, paralelo ou sequencial.
+2. **Revise e aprove.** Nada roda antes da aprovação. Na aprovação o INA cria um git worktree e uma branch por agente (`.ina/worktrees/<run>-<agente>`, branch `ina/<run>/<agente>`).
+3. **N+1 terminais reais.** Orquestrador na raiz do workspace (sem editar arquivos nem escrever no git), cada agente no seu worktree. Terminais são PTYs reais (ConPTY), não simulações.
+4. **Agendamento por dependências.** Um agente só começa quando seus pré-requisitos concluem (modo sequencial: todos antes dele). Antes de iniciar, o INA faz merge das branches dos pré-requisitos no worktree dele e as lista no `task.json`. Dependentes de um agente que falhou ficam bloqueados e são liberados quando ele se recupera. Início automático opcional; limite de 60 minutos por agente.
+5. **Registro de tarefas compartilhado.** Cada agente recebe `.ina/task.json` e reporta em `.ina/result.json`. O INA guarda o status no SQLite (`pending → running → verifying → done`, ou `failed` / `blocked` / `cancelled`) e registra cada mudança em `.ina/events.jsonl`.
+6. **Verificação de resultados.** "Concluído" informado pelo agente é só uma alegação: o INA roda os comandos de verificação do agente (aprovados com o plano; só `cargo`, `node`, `python` ou `pytest`) num checkout limpo do que ele commitou e compara os arquivos declarados com o que a branch mudou. Sem comandos, a tarefa fica "não verificada".
+7. **Mensagens estruturadas.** Agentes gravam perguntas, progresso, bloqueios e entregas em `.ina/outbox/`; você responde pelo painel de Mensagens. O orquestrador propõe instruções do mesmo jeito, e você aprova antes da entrega. Mensagens entregues vão para `.ina/inbox/` do agente; quando você pede, o INA digita uma linha fixa de aviso no terminal dele.
+8. **Integração controlada.** Uma simulação (`git merge-tree`) mostra merges limpos, conflitos previstos e arquivos mexidos por mais de um agente antes de você confirmar. Só agentes concluídos (verificados ou explicitamente não verificados) entram, com merge `--no-ff` na ordem das dependências; aborta em conflito; limpeza de worktrees e branches integradas. Trabalho não commitado ou não integrado nunca é apagado.
+9. **Recuperação.** Equipes persistem; depois de reiniciar, tarefas cuja sessão se perdeu são fechadas com o resultado que deixaram. Ao rodar uma tarefa de novo, o agente recebe como terminou a tentativa anterior (`previousAttempt`).
 
-UI in Portuguese (pt-BR) and English.
+Interface em português (pt-BR) e inglês.
 
-## Requirements
+## Requisitos
 
 - Windows 11
-- [Claude Code](https://docs.claude.com/claude-code) CLI on `PATH`, onboarded and logged in (INA checks this on start)
+- [Claude Code](https://docs.claude.com/claude-code) CLI no `PATH`, configurado e logado (o INA verifica ao abrir)
 - Git
-- Rust (stable, MSVC) and Visual Studio Build Tools 2022
-- Node.js (tested with 24)
-- Each workspace must be a git repository with at least one commit, and its folder trusted in Claude Code (run `claude` there once and accept)
+- Rust (stable, MSVC) e Visual Studio Build Tools 2022
+- Node.js (testado com a 24)
+- Cada workspace precisa ser um repositório git com pelo menos um commit, e a pasta precisa ser confiável no Claude Code (rode `claude` nela uma vez e aceite)
 
-## Run
+## Rodar
 
 ```sh
 npm install
 npm run tauri dev
 ```
 
-## Tests
+## Testes
 
 ```sh
 npm test                      # Vitest
 npm run lint
 npx tsc --noEmit
 cd src-tauri
-cargo test                    # unit + integration (uses real git)
-cargo test -- --ignored       # also runs real Claude Code (costs tokens)
+cargo test                    # unitários + integração (usa git real)
+cargo test -- --ignored       # também roda o Claude Code real (gasta tokens)
 cd ..
-# E2E: start the app with CDP, then run Playwright against its WebView2
+# E2E: abra o app com CDP e rode o Playwright contra o WebView2 dele
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 npm run tauri dev
-npm run e2e                   # UI, workspaces, real shell
-INA_E2E_WORKSPACE=<workspace name> npm run e2e   # + full team flow with real agents (costs tokens)
+npm run e2e                   # UI, workspaces, shell real
+INA_E2E_WORKSPACE=<nome do workspace> npm run e2e   # + fluxo completo com agentes reais (gasta tokens)
 cargo clippy --all-targets
 ```
 
-## Security model
+## Modelo de segurança
 
-- The backend is the only authority over processes: programs come from an allowlist (`claude`, `powershell`, `git`), args are validated and passed as a vector (no shell string interpolation), and every `cwd` must be inside the workspace.
-- The frontend never chooses a program or a prompt for an agent; prompts are built from the stored, approved plan.
-- Session variables of the parent Claude Code (ids, tokens, sockets) are removed from child processes.
-- INA only reads the Claude Code config (`~/.claude.json`) and never writes it.
+- O backend é a única autoridade sobre processos: programas vêm de uma allowlist (`claude`, `powershell`, `git`), argumentos são validados e passados como vetor (sem interpolar string em shell) e todo `cwd` precisa estar dentro do workspace.
+- O frontend nunca escolhe programa nem prompt de agente; os prompts são montados a partir do plano aprovado e salvo.
+- Variáveis de sessão do Claude Code pai (ids, tokens, sockets) são removidas dos processos filhos.
+- O INA só lê a configuração do Claude Code (`~/.claude.json`), nunca escreve.
 
-See [SECURITY.md](SECURITY.md).
+Veja [SECURITY.md](SECURITY.md).
 
-## Layout
+## Estrutura
 
 ```
-src/              React + TypeScript UI (xterm.js, i18next)
+src/              UI React + TypeScript (xterm.js, i18next)
 src-tauri/src/
-  pty.rs          real PTY sessions (portable-pty / ConPTY)
-  policy.rs       program allowlist, args/cwd validation, env stripping
-  plan.rs         plan schema, validation, planner, prompts
-  worktree.rs     git worktrees, status, merge, cleanup
-  tasks.rs        .ina/ protocol, task registry, dependency blocking
-  messages.rs     outbox/inbox messages
-  verify.rs       verification checks, declared vs changed files
-  store.rs        SQLite (workspaces, teams, tasks)
-  trust.rs        read-only Claude Code folder-trust check
-  setup.rs        first-run check of Claude Code
-docs/STATE.md     current state and next steps
-docs/PHASE2.md    Phase 2 plan and decisions
-e2e/              Playwright tests (attach to the running app over CDP)
+  pty.rs          sessões PTY reais (portable-pty / ConPTY)
+  policy.rs       allowlist de programas, validação de args/cwd, limpeza de env
+  plan.rs         schema do plano, validação, planejador, prompts
+  worktree.rs     git worktrees, status, merge, limpeza
+  tasks.rs        protocolo .ina/, registro de tarefas, bloqueio por dependência
+  messages.rs     mensagens outbox/inbox
+  verify.rs       comandos de verificação, arquivos declarados vs alterados
+  store.rs        SQLite (workspaces, equipes, tarefas)
+  trust.rs        checagem somente-leitura de confiança de pasta do Claude Code
+  setup.rs        checagem de primeira execução do Claude Code
+docs/STATE.md     estado atual e próximos passos
+docs/PHASE2.md    plano e decisões da Fase 2
+e2e/              testes Playwright (conectam ao app em execução via CDP)
 ```
 
-## License
+## Licença
 
 [MIT](LICENSE)

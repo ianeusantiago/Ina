@@ -61,7 +61,7 @@ Validate executables, args, cwd and workspace boundaries · no shell-string inte
 Clear module boundaries, small functions, strict TS, ESLint + Prettier, structured logs, explicit error handling, unit + integration tests (process lifecycle, task assignment, authorization, cancellation), Playwright E2E for main flows. No fake features, no swallowed errors, no hardcoded credentials.
 
 **Documentation (dedicated responsibility):** one agent/role owns docs and keeps them in sync with code every phase. Deliver, in **pt-BR and English**, GitHub-ready:
-- `README.md` (EN) + `README.pt-BR.md`: overview, screenshots, features, prerequisites, install, quick start, usage, roadmap, license.
+- `README.md` (pt-BR) + `README.en.md` (EN): overview, screenshots, features, prerequisites, install, quick start, usage, roadmap, license.
 - `docs/`: architecture (with diagrams), orchestration/agent model, security model, setup, development, testing, packaging, troubleshooting, FAQ.
 - `CONTRIBUTING.md`, `CHANGELOG.md`, `LICENSE`, `SECURITY.md`, issue/PR templates.
 Docs must match real, verified behavior — never document unbuilt features as done.
