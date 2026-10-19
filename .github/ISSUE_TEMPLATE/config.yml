@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Vulnerabilidade de segurança
+    url: https://github.com/ianeusantiago/Ina/security/advisories/new
+    about: Reporte em particular, não em issue pública.
