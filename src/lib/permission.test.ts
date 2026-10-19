@@ -22,6 +22,7 @@ describe("parsePermission", () => {
     const p = parsePermission(SCREEN);
     expect(p?.question).toBe("Do you want to create ina-perm-2.txt?");
     expect(p?.action).toBe("Write(ina-perm-2.txt)");
+    expect(p?.detail.split("\n")).toEqual(["Create file", " ina-perm-2.txt", "  1 hi"]);
     expect(p?.options.map((o) => [o.key, o.kind])).toEqual([
       ["1", "allow"],
       ["2", "always"],

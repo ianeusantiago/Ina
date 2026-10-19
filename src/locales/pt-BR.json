@@ -230,6 +230,7 @@
     "title": "{{name}} pede sua permissão",
     "allow": "Permitir",
     "always": "Permitir sempre nesta sessão",
-    "deny": "Negar"
+    "deny": "Negar",
+    "details": "Ver detalhes"
   }
 }

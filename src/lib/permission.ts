@@ -3,6 +3,8 @@ export interface PermissionPrompt {
   question: string;
   /** What the agent wants to run or change, e.g. "Write(notes.txt)". */
   action: string;
+  /** The block Claude Code shows above the question (command, file, diff), trimmed. */
+  detail: string;
   options: { key: string; label: string; kind: "allow" | "always" | "deny" | "other" }[];
 }
 
@@ -46,16 +48,25 @@ export function parsePermission(lines: string[]): PermissionPrompt | null {
   }
   if (!footer || options.length === 0) return null;
   let action = "";
+  let start = 0;
   for (let i = q - 1; i >= 0; i--) {
     const m = TOOL.exec(lines[i] ?? "");
     if (m?.[1]) {
       action = m[1];
+      start = i + 1;
       break;
     }
   }
+  const detail = lines
+    .slice(start, q)
+    .filter((l) => l.trim() && !/^[\s─╌━-]+$/.test(l))
+    .map((l) => l.trimEnd())
+    .join("\n")
+    .trim();
   return {
     question: `Do you want to ${QUESTION.exec(lines[q] ?? "")?.[1] ?? ""}`,
     action,
+    detail,
     options,
   };
 }

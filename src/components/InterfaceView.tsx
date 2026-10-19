@@ -247,9 +247,14 @@ function Chat({
             className="aero-card flex flex-col gap-2 self-stretch px-4 py-3 text-[13px] text-fg"
           >
             <p className="font-semibold">{t("permission.title", { name: member.name })}</p>
-            <p className="text-fg-2">
-              {member.permission.prompt.action || member.permission.prompt.question}
-            </p>
+            {member.permission.prompt.detail && (
+              <details className="text-xs text-fg-2">
+                <summary className="cursor-pointer select-none">{t("permission.details")}</summary>
+                <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-hover px-3 py-2 font-mono text-[11.5px] whitespace-pre-wrap">
+                  {member.permission.prompt.detail}
+                </pre>
+              </details>
+            )}
             <div className="flex flex-wrap gap-2">
               {member.permission.prompt.options.map((o) => (
                 <button
