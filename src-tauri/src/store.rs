@@ -76,6 +76,13 @@ const MIGRATIONS: &[&str] = &[
         reply_to INTEGER REFERENCES messages(id),
         at TEXT NOT NULL DEFAULT (datetime('now'))
     );",
+    // Latest Claude session of each agent, so it can be resumed after INA restarts.
+    "CREATE TABLE sessions (
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        PRIMARY KEY (team_id, agent_id)
+    );",
 ];
 
 pub struct Store {
@@ -83,6 +90,30 @@ pub struct Store {
 }
 
 impl Store {
+    /// Records the agent's latest Claude session id (replaces the previous one).
+    pub fn set_agent_session(
+        &self,
+        team: i64,
+        agent: &str,
+        session: &str,
+    ) -> Result<(), StoreError> {
+        let conn = self.conn.lock().map_err(|_| StoreError::Poisoned)?;
+        conn.execute(
+            "INSERT INTO sessions (team_id, agent_id, session_id) VALUES (?1, ?2, ?3)
+             ON CONFLICT(team_id, agent_id) DO UPDATE SET session_id = excluded.session_id",
+            rusqlite::params![team, agent, session],
+        )?;
+        Ok(())
+    }
+
+    pub fn agent_sessions_of(&self, team: i64) -> Result<Vec<(String, String)>, StoreError> {
+        let conn = self.conn.lock().map_err(|_| StoreError::Poisoned)?;
+        let mut stmt =
+            conn.prepare("SELECT agent_id, session_id FROM sessions WHERE team_id = ?1")?;
+        let rows = stmt.query_map([team], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         Self::init(Connection::open(path)?)
     }
@@ -509,6 +540,30 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn agent_sessions_keep_the_latest() {
+        let db = Store::in_memory().unwrap();
+        let dir = std::env::temp_dir();
+        let ws = db.add_workspace(&dir).unwrap();
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO teams (workspace_id, plan) VALUES (?1, '{}')",
+            [ws.id],
+        )
+        .unwrap();
+        let team = conn.last_insert_rowid();
+        drop(conn);
+        db.set_agent_session(team, "api", "s1").unwrap();
+        db.set_agent_session(team, "api", "s2").unwrap();
+        db.set_agent_session(team, "ui", "s3").unwrap();
+        let mut got = db.agent_sessions_of(team).unwrap();
+        got.sort();
+        assert_eq!(
+            got,
+            [("api".into(), "s2".into()), ("ui".into(), "s3".into())]
+        );
     }
 
     #[test]

@@ -5,9 +5,11 @@ mod plan;
 mod policy;
 mod pty;
 mod report;
+mod review;
 mod setup;
 mod store;
 mod tasks;
+mod teamusage;
 mod trust;
 mod usage;
 mod verify;
@@ -678,6 +680,148 @@ fn other_live_session(
         .any(|s| s != not && pty.is_running(s))
 }
 
+fn to_db_id(plan_id: u64) -> Result<i64, String> {
+    i64::try_from(plan_id).map_err(|e| e.to_string())
+}
+
+/// The agent's last Claude session, if its log still exists (Claude agents and orchestrator).
+fn resumable_session(
+    store: &Store,
+    team: &plan::Team,
+    plan_id: u64,
+    agent_id: &str,
+) -> Result<Option<String>, String> {
+    let is_claude = agent_id == plan::ORCHESTRATOR_ID
+        || team
+            .plan
+            .agent(agent_id)
+            .is_ok_and(|a| a.cli == plan::AgentCli::Claude);
+    if !is_claude {
+        return Ok(None);
+    }
+    let cwd = if agent_id == plan::ORCHESTRATOR_ID {
+        workspace_root(store, team.workspace_id)?
+    } else {
+        match team.worktrees.get(agent_id) {
+            Some(wt) => wt.path.clone(),
+            None => return Ok(None),
+        }
+    };
+    let sessions = store
+        .agent_sessions_of(to_db_id(plan_id)?)
+        .map_err(|e| e.to_string())?;
+    Ok(sessions
+        .into_iter()
+        .find(|(a, _)| a == agent_id)
+        .map(|(_, sid)| sid)
+        .filter(|sid| activity::find_log(plan::AgentCli::Claude, &cwd, Some(sid)).is_some()))
+}
+
+/// Tokens used by a team's Claude sessions (latest session of each member), from their logs.
+#[tauri::command]
+async fn team_usage(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<teamusage::TeamUsage, String> {
+    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    let root = workspace_root(&store, team.workspace_id)?;
+    let sessions = store
+        .agent_sessions_of(to_db_id(plan_id)?)
+        .map_err(|e| e.to_string())?;
+    let logs: Vec<PathBuf> = sessions
+        .iter()
+        .filter_map(|(agent, sid)| {
+            let cwd = if agent == plan::ORCHESTRATOR_ID {
+                root.clone()
+            } else {
+                team.worktrees.get(agent)?.path.clone()
+            };
+            activity::find_log(plan::AgentCli::Claude, &cwd, Some(sid))
+        })
+        .collect();
+    blocking(move || {
+        let mut usage = teamusage::TeamUsage::default();
+        for log in &logs {
+            usage.add_log(log).map_err(|e| e.to_string())?;
+        }
+        Ok(usage)
+    })
+    .await
+}
+
+/// Reviewer before merging: a tool-less `claude -p` reads every agent's diff and answers in
+/// plain words whether it is safe to merge.
+#[tauri::command]
+async fn team_review(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<review::Review, String> {
+    let (git, ordered, team) = team_git(&store, &plans, plan_id)?;
+    let root = workspace_root(&store, team.workspace_id)?;
+    if !folder_trusted(&root)? {
+        return Err(trust::NOT_TRUSTED.into());
+    }
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    blocking(move || {
+        let mut diffs = Vec::new();
+        for (id, wt) in &ordered {
+            let (stat, patch) = git.branch_diff(&wt.branch).map_err(|e| e.to_string())?;
+            let agent = team.plan.agent(id).map_err(|e| e.to_string())?;
+            diffs.push((agent.name.clone(), agent.task.clone(), stat, patch));
+        }
+        let parts: Vec<review::Part> = diffs
+            .iter()
+            .map(|(name, task, stat, diff)| review::Part {
+                name,
+                task,
+                stat,
+                diff,
+            })
+            .collect();
+        let (prompt, truncated) = review::prompt(&team.plan.summary, &parts);
+        let spec = policy::authorize(
+            Program::Claude,
+            review::args(&prompt),
+            &root,
+            &root,
+            0,
+            &path_var,
+        )
+        .map_err(|e| e.to_string())?;
+        let mut child = pty::piped_command(&spec)
+            .spawn()
+            .map_err(|e| format!("spawn: {e}"))?;
+        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(300))
+            .map_err(|e| e.to_string())?;
+        status.ok_or("timed out")?;
+        let mut r = review::parse_output(&String::from_utf8_lossy(&output.stdout))?;
+        r.truncated = truncated;
+        Ok(r)
+    })
+    .await
+}
+
+/// Members of a team whose last conversation can be continued.
+#[tauri::command]
+fn team_resumable(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<Vec<String>, String> {
+    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    let mut ids = vec![plan::ORCHESTRATOR_ID.to_string()];
+    ids.extend(team.plan.agents.iter().map(|a| a.id.clone()));
+    let mut out = vec![];
+    for id in ids {
+        if resumable_session(&store, &team, plan_id, &id)?.is_some() {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
 /// Opens an interactive `claude` session for the orchestrator or one agent of an approved plan.
 /// The prompt is built here from the stored plan, never taken from the frontend.
 #[tauri::command]
@@ -693,9 +837,19 @@ async fn pty_spawn_agent(
     cols: u16,
     rows: u16,
     on_event: Channel<PtyMessage>,
+    resume: Option<bool>,
 ) -> Result<(), String> {
     valid_id(&id)?;
     let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    // Continue the agent's last Claude conversation instead of sending its task again.
+    let resume_id = if resume == Some(true) {
+        Some(
+            resumable_session(&store, &team, plan_id, &agent_id)?
+                .ok_or("no conversation to resume")?,
+        )
+    } else {
+        None
+    };
     let root = workspace_root(&store, team.workspace_id)?;
     if !folder_trusted(&root)? {
         return Err(trust::NOT_TRUSTED.into());
@@ -729,7 +883,7 @@ async fn pty_spawn_agent(
         // A finished task is being run again: set the old result aside and tell the agent how
         // the previous run ended.
         let row = reg.task(&agent_id).map_err(|e| e.to_string())?;
-        let previous = match row {
+        let previous = match row.filter(|_| resume_id.is_none()) {
             Some(t) => {
                 let status = t.status;
                 let finished = !matches!(
@@ -774,10 +928,24 @@ async fn pty_spawn_agent(
         if let Some(s) = usage::claude_settings(&exe, &claude_usage_file(&app)?) {
             args.extend(["--settings".to_string(), s]);
         }
-        // Known session id: the interface reads exactly this session's log.
-        let session_id = activity::new_session_id();
-        args.extend(["--session-id".to_string(), session_id.clone()]);
+        // Known session id: the interface reads exactly this session's log. Resuming keeps the
+        // same id (and log) and drops the prompt: the task is already in that conversation.
+        let session_id = match &resume_id {
+            Some(sid) => {
+                args.remove(0);
+                args.extend(["--resume".to_string(), sid.clone()]);
+                sid.clone()
+            }
+            None => {
+                let sid = activity::new_session_id();
+                args.extend(["--session-id".to_string(), sid.clone()]);
+                sid
+            }
+        };
         plans.set_log(plan_id, &agent_id, &session_id);
+        if let Err(e) = store.set_agent_session(to_db_id(plan_id)?, &agent_id, &session_id) {
+            eprintln!("session {agent_id}: not recorded: {e}");
+        }
     }
     let mut spec = policy::authorize(program, args, &root, &cwd, pty.count(), &path_var)
         .map_err(|e| e.to_string())?;
@@ -1842,6 +2010,9 @@ pub fn run() {
             team_archive,
             team_report,
             preview_page,
+            team_resumable,
+            team_usage,
+            team_review,
             team_list,
             team_tasks,
             claude_setup,

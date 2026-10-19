@@ -311,6 +311,14 @@ impl Git {
     }
 
     /// Merge one branch into HEAD (`--no-ff`). A conflict is aborted, leaving HEAD unchanged.
+    /// What `branch` changed since it left the current branch: (`--stat`, patch).
+    pub fn branch_diff(&self, branch: &str) -> Result<(String, String), WorktreeError> {
+        let range = format!("HEAD...{branch}");
+        let stat = self.run(&["diff", "--no-color", "--no-ext-diff", "--stat", &range])?;
+        let patch = self.run(&["diff", "--no-color", "--no-ext-diff", &range])?;
+        Ok((stat, patch))
+    }
+
     pub fn merge(&self, branch: &str) -> Result<MergeOutcome, WorktreeError> {
         self.merge_in(&self.root, branch)
     }

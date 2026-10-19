@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import { teamReport, type Report } from "../lib/report";
+import { invoke } from "@tauri-apps/api/core";
+
+interface Review {
+  verdict: "ok" | "issues";
+  summary: string;
+  findings: { agent: string; severity: "high" | "medium" | "low"; problem: string }[];
+  truncated: boolean;
+}
 import { useTranslation } from "react-i18next";
 import {
   teamCleanup,
@@ -44,6 +52,8 @@ export function ReadyBanner({
   const allDone = tasks.length > 0 && tasks.every((x) => x.status === "done");
   const [report, setReport] = useState<Report | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   useEffect(() => {
     if (!allDone || finished) return;
     let alive = true;
@@ -109,9 +119,61 @@ export function ReadyBanner({
           ) : (
             <p className="text-[11px] text-muted">{t("report.writing")}</p>
           ))}
+        {reviewing && <p className="mt-1 text-[11px] text-muted">{t("review.working")}</p>}
+        {review && (
+          <div
+            className={`mt-1.5 flex flex-col gap-1 rounded-lg px-3 py-2 text-[12.5px] ${
+              review.verdict === "ok" ? "bg-success/10" : "bg-warning/10"
+            }`}
+          >
+            <p className="font-semibold">
+              {review.verdict === "ok" ? t("review.ok") : t("review.issues")}
+            </p>
+            <p className="whitespace-pre-wrap text-fg-2">{review.summary}</p>
+            {review.findings.length > 0 && (
+              <ul className="flex flex-col gap-0.5">
+                {review.findings.map((f, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span
+                      className={
+                        f.severity === "high"
+                          ? "text-danger"
+                          : f.severity === "medium"
+                            ? "text-warning"
+                            : "text-muted"
+                      }
+                    >
+                      ●
+                    </span>
+                    <span>
+                      <b>{f.agent}:</b> {f.problem}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {review.truncated && <p className="text-[11px] text-muted">{t("review.truncated")}</p>}
+          </div>
+        )}
         {error && <p className={`text-xs ${errorText}`}>{error}</p>}
       </div>
       <div className="flex gap-2">
+        {(step.kind === "ask" || step.kind === "preview") && (
+          <button
+            className={`text-xs ${ghostButton}`}
+            disabled={busy || reviewing}
+            onClick={() => {
+              setReviewing(true);
+              setError(null);
+              invoke<Review>("team_review", { planId })
+                .then(setReview)
+                .catch((e: unknown) => setError(String(e)))
+                .finally(() => setReviewing(false));
+            }}
+          >
+            {review ? t("review.again") : t("review.ask")}
+          </button>
+        )}
         {step.kind === "ask" && (
           <button
             className={`text-xs ${primaryButton}`}
