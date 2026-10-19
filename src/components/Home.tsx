@@ -94,7 +94,7 @@ export function Home({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+        <div className="mx-auto flex max-w-[54rem] flex-col gap-3">
           {items.length === 0 && (
             <div className="flex flex-col items-center gap-3 pt-[12vh] text-center">
               <img src={inaIcon} alt="" className="size-20 drop-shadow-lg" />
