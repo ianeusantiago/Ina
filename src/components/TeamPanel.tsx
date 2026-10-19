@@ -19,6 +19,7 @@ import {
 } from "../lib/team";
 import { IntegrationBar } from "./IntegrationBar";
 import { InterfaceView, type Member } from "./InterfaceView";
+import { ReadyBanner } from "./ReadyBanner";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { TerminalPane, type PendingPermission } from "./TerminalPane";
@@ -272,6 +273,7 @@ function TeamRun({
   ];
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
+      <ReadyBanner planId={id} tasks={tasks} />
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <IntegrationBar planId={id} />

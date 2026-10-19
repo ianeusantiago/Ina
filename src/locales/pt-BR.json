@@ -232,5 +232,24 @@
     "always": "Permitir sempre nesta sessão",
     "deny": "Negar",
     "details": "Ver detalhes"
+  },
+  "ready": {
+    "title": "Pronto! Todos os agentes terminaram.",
+    "hint": "Quer juntar o trabalho deles no seu projeto?",
+    "look": "Ver o que vai mudar",
+    "noPreview": "Não deu para simular antes, mas dá para juntar mesmo assim.",
+    "clean": "Tudo se encaixa, sem conflitos. Pode juntar com segurança.",
+    "conflicts_one": "{{count}} agente tem mudanças que batem com as de outro. Juntando, ele fica para você resolver no terminal.",
+    "conflicts_other": "{{count}} agentes têm mudanças que batem com as de outros. Juntando, eles ficam para você resolver no terminal.",
+    "notNow": "Agora não",
+    "merge": "Juntar no projeto",
+    "merged": "Trabalho juntado no projeto!",
+    "mergedWithProblems": "Juntei o que deu; algumas partes precisam de você.",
+    "conflictIn": "{{agent}}: conflito, veja no terminal",
+    "failedIn": "{{agent}}: não deu para juntar",
+    "cleanupHint": "Os espaços temporários dos agentes podem ser apagados agora.",
+    "cleanup": "Limpar espaços temporários",
+    "cleaned": "Tudo pronto e organizado.",
+    "close": "Fechar"
   }
 }

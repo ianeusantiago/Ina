@@ -232,5 +232,24 @@
     "always": "Always allow this session",
     "deny": "Deny",
     "details": "Show details"
+  },
+  "ready": {
+    "title": "Done! Every agent has finished.",
+    "hint": "Do you want to bring their work into your project?",
+    "look": "See what will change",
+    "noPreview": "Could not simulate it first, but merging still works.",
+    "clean": "Everything fits, no conflicts. Safe to merge.",
+    "conflicts_one": "{{count}} agent changed the same things as another. Merging leaves it for you to resolve in the terminal.",
+    "conflicts_other": "{{count}} agents changed the same things as others. Merging leaves them for you to resolve in the terminal.",
+    "notNow": "Not now",
+    "merge": "Bring into project",
+    "merged": "Work merged into the project!",
+    "mergedWithProblems": "Merged what I could; some parts need you.",
+    "conflictIn": "{{agent}}: conflict, see the terminal",
+    "failedIn": "{{agent}}: could not merge",
+    "cleanupHint": "The agents' temporary workspaces can be removed now.",
+    "cleanup": "Clean up temporary workspaces",
+    "cleaned": "All done and tidy.",
+    "close": "Close"
   }
 }
