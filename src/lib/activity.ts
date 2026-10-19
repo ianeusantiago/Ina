@@ -51,6 +51,18 @@ export function conversation(events: ActivityEvent[]): Conversation {
   };
 }
 
+/**
+ * Chat text without code: fenced blocks become `note` (the terminal has them) and inline code
+ * marks are dropped, so the Interface reads as plain language.
+ */
+export function plainText(text: string, note: string): string {
+  return text
+    .replace(/```[\s\S]*?(```|$)/g, `(${note})`)
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Last path segment, for "Editing App.tsx…". */
 export const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 

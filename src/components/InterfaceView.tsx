@@ -5,6 +5,7 @@ import {
   agentSend,
   baseName,
   conversation,
+  plainText,
   type Conversation,
 } from "../lib/activity";
 import type { AgentCli, TaskStatus } from "../lib/team";
@@ -255,7 +256,7 @@ function Chat({
         )}
         {messages.map((m, i) => (
           <Bubble key={i} role={m.role}>
-            {m.text}
+            {m.role === "agent" ? plainText(m.text, t("activity.technical")) : m.text}
           </Bubble>
         ))}
         {pending.map((m, i) => (

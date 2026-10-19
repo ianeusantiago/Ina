@@ -189,15 +189,16 @@
     "doing": {
       "thinking": "Pensando…",
       "sending": "Enviando…",
-      "shell": "Executando comandos…",
-      "edit": "Editando {{file}}…",
-      "write": "Criando {{file}}…",
-      "read": "Lendo {{file}}…",
+      "shell": "Trabalhando no projeto…",
+      "edit": "Editando um arquivo…",
+      "write": "Criando um arquivo…",
+      "read": "Lendo o projeto…",
       "search": "Procurando no projeto…",
       "web": "Pesquisando na web…",
       "agent": "Passando parte do trabalho para um ajudante…",
       "todo": "Organizando os passos…",
       "other": "Trabalhando…"
-    }
+    },
+    "technical": "detalhes técnicos no terminal"
   }
 }

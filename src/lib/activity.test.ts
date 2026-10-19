@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseName, conversation, type ActivityEvent } from "./activity";
+import { baseName, conversation, plainText, type ActivityEvent } from "./activity";
 
 const tool = (detail: string): ActivityEvent => ({
   kind: "tool",
@@ -35,5 +35,13 @@ describe("conversation", () => {
     expect(c.current?.detail).toBe("C:\\w\\index.html");
     expect(baseName(c.current?.detail ?? "")).toBe("index.html");
     expect(conversation([]).working).toBe(false);
+  });
+});
+
+describe("plainText", () => {
+  it("hides code blocks and inline code marks", () => {
+    const text = "Done.\n\n```ts\nconst x = 1;\n```\nSee `app.ts`.";
+    expect(plainText(text, "in terminal")).toBe("Done.\n\n(in terminal)\nSee app.ts.");
+    expect(plainText("Cut ```off", "t")).toBe("Cut (t)");
   });
 });
