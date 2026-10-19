@@ -182,7 +182,8 @@
     "view": "View",
     "views": {
       "interface": "Interface",
-      "terminals": "Terminals"
+      "terminals": "Terminals",
+      "preview": "Preview"
     },
     "members": "Team members",
     "notStarted": "Not started.",
@@ -296,5 +297,14 @@
     "howToTest": "How to try it",
     "writing": "Writing a summary of what was done…",
     "unavailable": "Could not write the summary right now."
+  },
+  "preview": {
+    "title": "Project preview",
+    "none": "No page (index.html) found in the project. If the app runs on a local server, paste its address below.",
+    "url": "Local address (e.g. http://localhost:5173)",
+    "open": "Open",
+    "reload": "Reload",
+    "file": "Project page",
+    "hint": "Shows the project as it is now (after merging the agents' work)."
   }
 }

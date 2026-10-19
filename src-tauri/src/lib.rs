@@ -1425,6 +1425,39 @@ async fn team_report(
     .await
 }
 
+/// Where a static site's `index.html` usually lives in a project.
+const PREVIEW_PAGES: &[&str] = &[
+    "index.html",
+    "public/index.html",
+    "dist/index.html",
+    "build/index.html",
+    "site/index.html",
+    "docs/index.html",
+];
+
+/// The workspace's site entry page, if any, made readable by the preview frame (asset
+/// protocol, this workspace only). The frame is sandboxed in the UI.
+#[tauri::command]
+fn preview_page(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    workspace_id: i64,
+) -> Result<Option<String>, String> {
+    let root = workspace_root(&store, workspace_id)?;
+    let Some(page) = PREVIEW_PAGES
+        .iter()
+        .map(|p| root.join(p))
+        .find(|p| p.is_file())
+    else {
+        return Ok(None);
+    };
+    let dir = page.parent().unwrap_or(&root).to_path_buf();
+    app.asset_protocol_scope()
+        .allow_directory(&dir, true)
+        .map_err(|e| e.to_string())?;
+    Ok(Some(page.display().to_string()))
+}
+
 #[tauri::command]
 async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
     blocking(move || sync_tasks(&app, plan_id)).await
@@ -1808,6 +1841,7 @@ pub fn run() {
             team_cleanup,
             team_archive,
             team_report,
+            preview_page,
             team_list,
             team_tasks,
             claude_setup,

@@ -21,6 +21,7 @@ import { IntegrationBar } from "./IntegrationBar";
 import { InterfaceView, type Member } from "./InterfaceView";
 import { ReadyBanner } from "./ReadyBanner";
 import { TeamProgress } from "./TeamProgress";
+import { PreviewView } from "./PreviewView";
 import { notify } from "../lib/notify";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
@@ -39,9 +40,9 @@ const parseAutoStart = (v: string | null) => v !== "off";
 
 const SPLIT_KEY = "ina.teamSplit";
 const VIEW_KEY = "ina.view";
-const VIEWS = ["interface", "terminals"] as const;
+const VIEWS = ["interface", "terminals", "preview"] as const;
 const parseView = (v: string | null): (typeof VIEWS)[number] =>
-  v === "terminals" ? "terminals" : "interface";
+  v === "terminals" ? "terminals" : v === "preview" ? "preview" : "interface";
 const SPLIT_MIN = 10;
 const SPLIT_MAX = 70;
 
@@ -174,7 +175,9 @@ function TeamRun({
   draft,
   resumed,
   focusAgent,
+  workspaceId,
 }: {
+  workspaceId: number;
   draft: PlanDraft;
   resumed: boolean;
   /** Member picked in the sidebar (the orchestrator if none). */
@@ -315,6 +318,7 @@ function TeamRun({
         </div>
       </div>
       {/* Both views stay mounted: switching keeps the selected member, drafts and sessions. */}
+      {mode === "preview" && <PreviewView workspaceId={workspaceId} />}
       <div className={`min-h-0 flex-1 ${mode === "interface" ? "" : "hidden"}`}>
         <InterfaceView
           planId={id}
@@ -328,7 +332,7 @@ function TeamRun({
       {/* Hidden, not unmounted: the interface reads sessions that keep running here. */}
       <div
         ref={view}
-        className={`flex min-h-0 flex-1 flex-col gap-1 ${mode === "interface" ? "hidden" : ""}`}
+        className={`flex min-h-0 flex-1 flex-col gap-1 ${mode === "terminals" ? "" : "hidden"}`}
       >
         <div
           className="grid min-h-0 shrink-0 grid-cols-2 gap-2 overflow-hidden"
@@ -476,6 +480,7 @@ export function TeamPanel({
         draft={stage.draft}
         resumed={stage.resumed}
         focusAgent={focus?.planId === stage.draft.id ? focus.agentId : null}
+        workspaceId={workspaceId}
       />
     );
   }

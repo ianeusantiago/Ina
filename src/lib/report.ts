@@ -43,6 +43,8 @@ export function teamReport(planId: number): Promise<Report> {
 /** Puts the report in the Home conversation, once per team. */
 export async function postReportToHome(planId: number, teamName: string) {
   const posted = `ina.report.home.${planId}`;
+  if (posting.has(planId)) return;
+  posting.add(planId);
   try {
     if (localStorage.getItem(posted)) return;
     const r = await teamReport(planId);
@@ -53,5 +55,10 @@ export async function postReportToHome(planId: number, teamName: string) {
     });
   } catch (e) {
     console.error("[report]", e);
+  } finally {
+    posting.delete(planId);
   }
 }
+
+/** Teams whose report is being posted right now (events repeat every tick). */
+const posting = new Set<number>();

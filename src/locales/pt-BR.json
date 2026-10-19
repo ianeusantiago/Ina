@@ -182,7 +182,8 @@
     "view": "Visualização",
     "views": {
       "interface": "Interface",
-      "terminals": "Terminais"
+      "terminals": "Terminais",
+      "preview": "Prévia"
     },
     "members": "Membros da equipe",
     "notStarted": "Não iniciado.",
@@ -296,5 +297,14 @@
     "howToTest": "Como testar",
     "writing": "Escrevendo um resumo do que foi feito…",
     "unavailable": "Não deu para escrever o resumo agora."
+  },
+  "preview": {
+    "title": "Prévia do projeto",
+    "none": "Não encontrei uma página (index.html) no projeto. Se o app roda num servidor local, cole o endereço abaixo.",
+    "url": "Endereço local (ex.: http://localhost:5173)",
+    "open": "Abrir",
+    "reload": "Recarregar",
+    "file": "Página do projeto",
+    "hint": "Mostra o projeto como ele está agora (depois de juntar o trabalho dos agentes)."
   }
 }
