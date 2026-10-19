@@ -83,6 +83,19 @@ fn pty_spawn_shell(
         .map_err(|e| e.to_string())
 }
 
+/// A plan generated but not approved yet, so a reloaded window can show it again.
+#[tauri::command]
+fn plan_draft(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    workspace_id: i64,
+) -> Result<Option<PlanDraft>, String> {
+    Ok(plans
+        .latest_draft(&store, workspace_id)
+        .map_err(|e| e.to_string())?
+        .map(|(id, plan)| PlanDraft { id, plan }))
+}
+
 /// Approved, open teams of a workspace, so they can be resumed after a restart.
 #[tauri::command]
 fn team_list(
@@ -699,11 +712,10 @@ async fn pty_spawn_agent(
 fn worktree_lock(dir: &std::path::Path) -> Result<Arc<Mutex<()>>, String> {
     static LOCKS: Mutex<Option<HashMap<PathBuf, Arc<Mutex<()>>>>> = Mutex::new(None);
     let mut locks = LOCKS.lock().map_err(|e| e.to_string())?;
-    Ok(locks
-        .get_or_insert_default()
-        .entry(dir.to_path_buf())
-        .or_default()
-        .clone())
+    let locks = locks.get_or_insert_default();
+    // Drop locks nobody holds or waits on (only the map references them).
+    locks.retain(|_, l| Arc::strong_count(l) > 1);
+    Ok(locks.entry(dir.to_path_buf()).or_default().clone())
 }
 
 /// Merge every finished prerequisite's branch into the dependent's worktree (so it builds on
@@ -885,6 +897,8 @@ struct TaskView {
     updated_at: String,
     /// `result.json` exists but is invalid; the agent may still fix it.
     result_error: Option<String>,
+    /// Agents that must be done before this one may start (`Plan::prerequisites`).
+    prerequisites: Vec<String>,
 }
 
 /// Start verification for every `verifying` task of a team that is not being verified yet.
@@ -1261,6 +1275,12 @@ fn sync_tasks(app: &tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, Str
             Ok(TaskView {
                 status: t.status,
                 result_error: errors.remove(&t.agent_id),
+                prerequisites: team
+                    .plan
+                    .prerequisites(&t.agent_id)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
                 agent_id: t.agent_id,
                 summary: t.summary,
                 detail: t.detail,
@@ -1315,12 +1335,60 @@ fn workspace_remove(
     Ok(())
 }
 
+/// Finish tasks still `running` with no live session (e.g. two sessions of an agent exited
+/// together and each saw the other alive). Only on the second tick in a row, so a spawn
+/// between its `Running` transition and its PTY starting is not taken for lost.
+fn finish_orphans(
+    app: &tauri::AppHandle,
+    team: &plan::Team,
+    root: &std::path::Path,
+    suspects: &mut std::collections::HashSet<(u64, String)>,
+) -> Result<(), String> {
+    let (store, plans, pty) = (
+        app.state::<Store>(),
+        app.state::<PlanStore>(),
+        app.state::<PtyManager>(),
+    );
+    let reg = registry(&store, root, team.id, &team.plan)?;
+    for (agent, wt) in &team.worktrees {
+        let key = (team.id, agent.clone());
+        let orphan = reg.status(agent).map_err(|e| e.to_string())? == Some(TaskStatus::Running)
+            && !plans
+                .agent_sessions(team.id, agent)
+                .iter()
+                .any(|s| pty.is_running(s));
+        if second_strike(suspects, key, orphan) {
+            reg.finish(agent, &wt.path, "session ended")
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether `key` is an orphan this tick and was one the tick before (then forgets it).
+fn second_strike<K: std::hash::Hash + Eq>(
+    suspects: &mut std::collections::HashSet<K>,
+    key: K,
+    orphan: bool,
+) -> bool {
+    if !orphan {
+        suspects.remove(&key);
+        false
+    } else if suspects.remove(&key) {
+        true
+    } else {
+        suspects.insert(key);
+        false
+    }
+}
+
 /// Background tick: keep every open team moving (results, verifications, outbox) whether or
 /// not its panels are open.
 fn tick_loop(app: &tauri::AppHandle) {
     let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
     let mut last_errors = std::collections::HashMap::<u64, String>::new();
     let mut last_tasks = HashMap::<u64, String>::new();
+    let mut orphans = std::collections::HashSet::<(u64, String)>::new();
     loop {
         std::thread::sleep(TICK);
         // A panic in one tick is logged; the loop (timeouts, verifications, outbox) survives.
@@ -1345,17 +1413,25 @@ fn tick_loop(app: &tauri::AppHandle) {
                     if plans.is_cleaning(team.id) {
                         continue;
                     }
-                    let result = sync_tasks(app, team.id).and_then(|tasks| {
-                        let (_, arrived) = sync_messages(app, team.id)?;
-                        let snapshot = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
-                        let changed = last_tasks.get(&team.id) != Some(&snapshot);
-                        last_tasks.insert(team.id, snapshot);
-                        if changed || arrived > 0 {
-                            // Open panels refresh now instead of waiting for their fallback poll.
-                            app.emit(TEAM_CHANGED, team.id).map_err(|e| e.to_string())?;
-                        }
-                        Ok(())
-                    });
+                    let result = finish_orphans(app, &team, &ws.root(), &mut orphans)
+                        .and_then(|()| sync_tasks(app, team.id))
+                        .and_then(|tasks| {
+                            let (_, arrived) = sync_messages(app, team.id)?;
+                            let snapshot =
+                                serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
+                            let changed = last_tasks.get(&team.id) != Some(&snapshot);
+                            last_tasks.insert(team.id, snapshot);
+                            if changed || arrived > 0 {
+                                // Open panels refresh now instead of waiting for their fallback poll.
+                                // Carries the tasks so the task panel need not sync them again.
+                                let payload = TeamChanged {
+                                    plan_id: team.id,
+                                    tasks: &tasks,
+                                };
+                                app.emit(TEAM_CHANGED, payload).map_err(|e| e.to_string())?;
+                            }
+                            Ok(())
+                        });
                     match result {
                         // Logged once per distinct error, not every tick.
                         Err(e) if last_errors.get(&team.id) != Some(&e) => {
@@ -1376,8 +1452,16 @@ fn tick_loop(app: &tauri::AppHandle) {
     }
 }
 
-/// Event (payload: plan id) emitted when a team's tasks or messages changed.
+/// Event (payload: `TeamChanged`) emitted when a team's tasks or messages changed.
 const TEAM_CHANGED: &str = "team-changed";
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TeamChanged<'a> {
+    plan_id: u64,
+    /// The registry as the tick just synced it.
+    tasks: &'a [TaskView],
+}
 
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -1427,6 +1511,7 @@ pub fn run() {
             pty_spawn_shell,
             pty_spawn_agent,
             plan_generate,
+            plan_draft,
             plan_approve,
             pty_write,
             pty_resize,
@@ -1454,6 +1539,23 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orphan_finished_only_on_second_tick_in_a_row() {
+        let mut s = std::collections::HashSet::new();
+        assert!(!second_strike(&mut s, "a", true));
+        assert!(second_strike(&mut s, "a", true));
+        assert!(
+            !second_strike(&mut s, "a", true),
+            "forgotten after finishing"
+        );
+        assert!(!second_strike(&mut s, "b", true));
+        assert!(
+            !second_strike(&mut s, "b", false),
+            "session came up meanwhile"
+        );
+        assert!(!second_strike(&mut s, "b", true));
+    }
 
     #[test]
     fn session_id_validation() {

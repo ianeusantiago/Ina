@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
+import type { TaskView } from "./team";
+
 /** Fallback interval; the backend tick pushes `TEAM_CHANGED` as soon as something changes. */
 export const POLL_MS = 15000;
-/** Backend event (payload: plan id) emitted when a team's tasks or messages changed. */
+/** Backend event emitted when a team's tasks or messages changed. */
 export const TEAM_CHANGED = "team-changed";
+
+export interface TeamChanged {
+  planId: number;
+  /** The task registry as the backend tick just synced it. */
+  tasks: TaskView[];
+}
 
 /**
  * Load now, on every `TEAM_CHANGED` for `planId`, and every `POLL_MS`.
- * `load` must be stable (memoized).
+ * `fromEvent`, if given, takes the data from the event instead of loading again.
+ * `load` and `fromEvent` must be stable (memoized or module-level).
  */
-export function usePolled<T>(load: () => Promise<T>, initial: T, planId: number) {
+export function usePolled<T>(
+  load: () => Promise<T>,
+  initial: T,
+  planId: number,
+  fromEvent?: (e: TeamChanged) => T,
+) {
   const [data, setData] = useState<T>(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,8 +46,12 @@ export function usePolled<T>(load: () => Promise<T>, initial: T, planId: number)
     const timer = setInterval(() => void run(), POLL_MS);
     let stop: (() => void) | null = null;
     let gone = false;
-    listen<number>(TEAM_CHANGED, (e) => {
-      if (e.payload === planId) void run();
+    listen<TeamChanged>(TEAM_CHANGED, (e) => {
+      if (e.payload.planId !== planId) return;
+      if (fromEvent) {
+        setData(fromEvent(e.payload));
+        setError(null);
+      } else void run();
     })
       .then((unlisten) => (gone ? unlisten() : (stop = unlisten)))
       .catch((e: unknown) => setError(String(e)));
@@ -43,7 +61,7 @@ export function usePolled<T>(load: () => Promise<T>, initial: T, planId: number)
       clearInterval(timer);
       stop?.();
     };
-  }, [run, planId]);
+  }, [run, planId, fromEvent]);
 
   return { data, error, setError, run };
 }

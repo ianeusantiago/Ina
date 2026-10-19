@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { panel, panelTitle, errorText } from "./ui";
 
-import { usePolled } from "../lib/usePolled";
+import { usePolled, type TeamChanged } from "../lib/usePolled";
 import { teamTasks, type AgentSpec, type TaskStatus, type TaskView } from "../lib/team";
 
 const tone: Record<TaskStatus, string> = {
@@ -19,11 +19,12 @@ const tone: Record<TaskStatus, string> = {
 const localTime = (utc: string) => new Date(`${utc.replace(" ", "T")}Z`).toLocaleString();
 
 const NONE: TaskView[] = [];
+const eventTasks = (e: TeamChanged) => e.tasks;
 
 /** Polls the team's task registry (status comes from the backend: process + result.json). */
 export function useTeamTasks(planId: number) {
   const load = useCallback(() => teamTasks(planId), [planId]);
-  const { data: tasks, error, run } = usePolled(load, NONE, planId);
+  const { data: tasks, error, run } = usePolled(load, NONE, planId, eventTasks);
   return { tasks, error, refresh: () => run() };
 }
 

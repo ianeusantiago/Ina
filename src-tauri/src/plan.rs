@@ -568,6 +568,22 @@ impl PlanStore {
         Ok(team)
     }
 
+    /// The plan to show again for review after the window reloaded, if any (`Store::latest_draft`).
+    pub fn latest_draft(
+        &self,
+        db: &Store,
+        workspace_id: i64,
+    ) -> Result<Option<(u64, Plan)>, PlanError> {
+        db.latest_draft(workspace_id)
+            .map_err(db_err)?
+            .map(|row| {
+                let id = u64::try_from(row.id).map_err(|_| PlanError::NotFound)?;
+                let (_, plan, _) = decode(row)?;
+                Ok((id, plan))
+            })
+            .transpose()
+    }
+
     /// Approved, open teams of a workspace (newest first).
     pub fn open_teams(&self, db: &Store, workspace_id: i64) -> Result<Vec<Team>, PlanError> {
         db.open_teams(workspace_id)
