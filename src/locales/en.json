@@ -5,6 +5,17 @@
     "languages": {
       "pt-BR": "Português",
       "en": "English"
+    },
+    "theme": "Appearance",
+    "themes": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "window": {
+      "close": "Close",
+      "minimize": "Minimize",
+      "maximize": "Zoom"
     }
   },
   "terminal": {

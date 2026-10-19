@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ghostButton } from "./ui";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { terminalTheme } from "../lib/theme";
 import { killPty, resizePty, writePty, type Spawner } from "../lib/pty";
 
 type Status =
@@ -40,11 +41,18 @@ export function TerminalPane({
     let alive = true;
 
     const term = new Terminal({
-      fontFamily: "Cascadia Mono, Consolas, monospace",
-      fontSize: 13,
+      fontFamily: '"SF Mono", Menlo, "Cascadia Mono", Consolas, monospace',
+      fontSize: 12.5,
+      fontWeight: "400",
+      fontWeightBold: "600",
+      lineHeight: 1.2,
       cursorBlink: true,
-      theme: { background: "#0b0b0c", foreground: "#e4e4e7", cursor: "#9ca3af" },
+      cursorStyle: "bar",
+      theme: terminalTheme(),
     });
+    // Follow theme switches (App sets `data-theme` on <html>).
+    const themeWatch = new MutationObserver(() => (term.options.theme = terminalTheme()));
+    themeWatch.observe(document.documentElement, { attributeFilter: ["data-theme"] });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
@@ -69,6 +77,7 @@ export function TerminalPane({
       observer.disconnect();
       input.dispose();
       resize.dispose();
+      themeWatch.disconnect();
       term.dispose();
       // Already exited is fine; a kill that beats the spawn makes the backend refuse it.
       killPty(id).catch(() => undefined);
@@ -87,11 +96,17 @@ export function TerminalPane({
           : "…";
 
   return (
-    <section className="flex h-full min-h-0 flex-col rounded border border-line bg-panel">
-      <header className="flex items-center gap-3 border-b border-line px-3 py-1.5 text-xs">
-        <span className="font-medium">{title}</span>
+    <section className="flex h-full min-h-0 flex-col rounded-mac bg-panel shadow-card">
+      <header className="flex items-center gap-3 border-b border-line px-4 py-2 text-xs">
+        <span className="font-semibold text-fg">{title}</span>
         {subtitle && <span className="truncate text-muted">{subtitle}</span>}
-        <span className="text-muted" role="status">
+        <span className="flex items-center gap-1.5 text-muted" role="status">
+          <span
+            aria-hidden
+            className={`size-1.5 rounded-full ${
+              status.kind === "running" ? "bg-success" : "bg-muted/60"
+            }`}
+          />
           {label}
         </span>
         <span className="flex-1" />
@@ -107,7 +122,7 @@ export function TerminalPane({
           {t("terminal.kill")}
         </button>
       </header>
-      <div ref={host} className="min-h-0 flex-1 p-1" />
+      <div ref={host} className="min-h-0 flex-1 rounded-b-mac px-3 py-2" />
     </section>
   );
 }

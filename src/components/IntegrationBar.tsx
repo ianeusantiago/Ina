@@ -84,7 +84,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
             </button>
             {cleanupFailed && (
               <button
-                className={`${button} border-red-900 text-red-300`}
+                className={`${button} text-danger`}
                 disabled={busy}
                 onClick={() => setConfirm("forceCleanup")}
               >
@@ -94,7 +94,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
           </>
         ) : (
           <>
-            <span className="text-zinc-100">{t(`integration.confirm.${confirm}`)}</span>
+            <span className="text-fg">{t(`integration.confirm.${confirm}`)}</span>
             <button className={button} disabled={busy} onClick={() => void confirmed(confirm)}>
               {t("integration.yes")}
             </button>
@@ -110,8 +110,8 @@ export function IntegrationBar({ planId }: { planId: number }) {
           <span className="text-muted">{t("integration.preview.title")}</span>
           <ul>
             {preview.steps.map((s) => (
-              <li key={s.agentId} className={s.kind === "conflict" ? "text-red-400" : undefined}>
-                <span className="text-zinc-100">{s.agentId}</span>{" "}
+              <li key={s.agentId} className={s.kind === "conflict" ? "text-danger" : undefined}>
+                <span className="text-fg">{s.agentId}</span>{" "}
                 {s.kind === "conflict"
                   ? t("integration.preview.conflict", { files: s.files.join(", ") })
                   : t(`integration.preview.${s.kind}`)}
@@ -119,7 +119,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
             ))}
           </ul>
           {preview.overlaps.map((o) => (
-            <p key={o.file} className="text-amber-300">
+            <p key={o.file} className="text-warning">
               {t("integration.preview.overlap", { file: o.file, agents: o.agents.join(", ") })}
             </p>
           ))}
@@ -134,7 +134,7 @@ export function IntegrationBar({ planId }: { planId: number }) {
         <ul>
           {result.rows.map((r) => (
             <li key={r.agentId}>
-              <span className="text-zinc-100">{r.agentId}</span>{" "}
+              <span className="text-fg">{r.agentId}</span>{" "}
               <span className="text-muted">
                 {r.status.branch} · {t("integration.ahead", { count: r.status.ahead })}
                 {r.status.dirty && ` · ${t("integration.dirty")}`}
@@ -151,9 +151,9 @@ export function IntegrationBar({ planId }: { planId: number }) {
           {result.steps.map((s) => (
             <li
               key={s.agentId}
-              className={s.kind === "conflict" || s.kind === "failed" ? "text-red-400" : undefined}
+              className={s.kind === "conflict" || s.kind === "failed" ? "text-danger" : undefined}
             >
-              <span className="text-zinc-100">{s.agentId}</span>{" "}
+              <span className="text-fg">{s.agentId}</span>{" "}
               {s.kind === "conflict"
                 ? t("integration.conflict", { files: s.files.join(", ") })
                 : s.kind === "failed"
@@ -166,9 +166,8 @@ export function IntegrationBar({ planId }: { planId: number }) {
       {result?.kind === "cleanup" && (
         <ul>
           {result.rows.map((r) => (
-            <li key={r.agentId} className={r.error ? "text-red-400" : undefined}>
-              <span className="text-zinc-100">{r.agentId}</span>{" "}
-              {r.error ?? t("integration.removed")}
+            <li key={r.agentId} className={r.error ? "text-danger" : undefined}>
+              <span className="text-fg">{r.agentId}</span> {r.error ?? t("integration.removed")}
             </li>
           ))}
         </ul>

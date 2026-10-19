@@ -1,11 +1,15 @@
 # INA — Estado
 
-**Fase atual:** 5 (pendências finais), branch `ianeusantiago/fase5-pendencias`. Fases 1–4 no `main` (PR #3, #4, #5).
+**Fase atual:** 6 (design estilo macOS), branch `ianeusantiago/fase6-design`. Fases 1–5 no `main` (PR #3–#6).
 
-## Fase 5 — pendências finais (branch `ianeusantiago/fase5-pendencias`)
+## Fase 6 — design estilo macOS
+- Tema claro padrão + Escuro/Sistema (persistido, aplicado antes do primeiro paint); tokens semânticos em `index.css`; barra de título própria com semáforo (janela sem decorações, permissões `core:window:allow-*`); sidebar translúcida; terminal segue o tema.
+- Verificado: tsc/eslint/prettier, Vitest 2, Playwright 5/5 (fluxo real), capturas claro/escuro conferidas.
+- Não verificado: clique real em fechar/minimizar/maximizar (E2E não fecha a janela).
+
+## Fase 5 — pendências finais (PR #6 merged, 54fa0b8)
 - Orquestrador: deny list cobre também a ferramenta PowerShell e mais formas de git (`-C`, `-c`, restore, stash, worktree, update-ref, branch -f/-D). Verificado com `claude -p` (PowerShell deny e `git -C` bloqueados; controle sem deny commitou). Rust 53, clippy, fmt.
 - E2E Playwright 5/5 em 3 execuções seguidas (fluxo real `ws-todo`): falha intermitente não reproduziu.
-- Próximo: PR.
 
 ## Fase 4 — pendências (PR #5 merged, 85ca40e)
 - Tick finaliza tarefas órfãs; evento leva tarefas; `prerequisites` do backend; restauração de rascunho. E2E 5/5, code-review sem achados.

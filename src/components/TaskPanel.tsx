@@ -7,11 +7,11 @@ import { teamTasks, type AgentSpec, type TaskStatus, type TaskView } from "../li
 
 const tone: Record<TaskStatus, string> = {
   pending: "text-muted",
-  running: "text-sky-300",
-  verifying: "text-sky-300",
-  done: "text-emerald-300",
-  failed: "text-red-400",
-  blocked: "text-amber-300",
+  running: "text-info",
+  verifying: "text-info",
+  done: "text-success",
+  failed: "text-danger",
+  blocked: "text-warning",
   cancelled: "text-muted",
 };
 
@@ -51,7 +51,7 @@ export function TaskPanel({
       <div className="flex items-center gap-2">
         <span className={panelTitle}>{t("tasks.title")}</span>
         <button
-          className="rounded border border-line px-2 py-0.5 hover:bg-line"
+          className="rounded-md bg-panel px-2 py-1 font-medium shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_1px_rgb(0_0_0/0.05)] transition hover:bg-hover active:scale-[0.98]"
           onClick={onRefresh}
         >
           {t("tasks.refresh")}
@@ -77,16 +77,16 @@ export function TaskPanel({
           return (
             <li key={task.agentId} className="flex flex-col">
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-zinc-100">{spec?.name ?? task.agentId}</span>
+                <span className="text-fg">{spec?.name ?? task.agentId}</span>
                 <span className={tone[task.status]}>{t(`tasks.status.${task.status}`)}</span>
                 <span className="text-muted">{localTime(task.updatedAt)}</span>
-                {task.summary && <span className="text-zinc-300">{task.summary}</span>}
+                {task.summary && <span className="text-fg-2">{task.summary}</span>}
                 {task.detail && task.detail !== task.summary && (
                   <span className="text-muted">· {task.detail}</span>
                 )}
               </div>
               {task.resultError && (
-                <p className="text-amber-300">
+                <p className="text-warning">
                   {t("tasks.invalidResult", { error: task.resultError })}
                 </p>
               )}

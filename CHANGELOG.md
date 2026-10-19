@@ -2,7 +2,15 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — Phase 5 (known issues)
+## [Unreleased] — Phase 6 (macOS-style design)
+
+### Changed
+- New macOS-inspired UI: light theme by default, with Dark and System options (saved; System follows the OS live).
+- Semantic color tokens for both themes; system font stack (SF Pro / Segoe UI Variable), Apple blue accent, rounded cards with soft shadows.
+- Frameless window with a unified title bar: traffic-light buttons (close, minimize, zoom), drag region, double-click to zoom.
+- Translucent sidebar source list with folder icons; terminal colors follow the theme (ANSI palette tuned for light backgrounds).
+
+## Phase 5 (known issues)
 
 ### Security
 - Orchestrator deny list also covers the PowerShell tool and more git forms (`-C`, `-c`, `restore`, `stash`, `worktree`, `update-ref`, `branch -f/-D`); rules verified with `claude -p`.

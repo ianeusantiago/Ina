@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { Workspace } from "../lib/workspaces";
+import { field, primaryButton } from "./ui";
 
 interface Props {
   workspaces: Workspace[];
@@ -24,28 +25,40 @@ export function Sidebar({ workspaces, selectedId, error, onSelect, onAdd, onRemo
   };
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-panel text-sm">
-      <h2 className="px-3 pt-3 pb-2 text-xs font-semibold tracking-wider text-muted uppercase">
+    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-sidebar text-[13px] backdrop-blur-2xl">
+      <h2 className="px-5 pt-3 pb-1.5 text-[11px] font-semibold text-muted">
         {t("workspaces.title")}
       </h2>
-      <ul className="min-h-0 flex-1 overflow-y-auto" aria-label={t("workspaces.title")}>
+      <ul className="min-h-0 flex-1 overflow-y-auto px-2.5" aria-label={t("workspaces.title")}>
         {workspaces.length === 0 && (
-          <li className="px-3 py-2 text-muted">{t("workspaces.empty")}</li>
+          <li className="px-2.5 py-2 text-muted">{t("workspaces.empty")}</li>
         )}
         {workspaces.map((w) => (
-          <li key={w.id} className="group flex items-center">
+          <li key={w.id} className="group flex items-center rounded-md">
             <button
-              className={`min-w-0 flex-1 truncate px-3 py-1.5 text-left hover:bg-line ${
-                w.id === selectedId ? "bg-line text-zinc-100" : "text-zinc-300"
+              className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-2.5 py-1.5 text-left transition ${
+                w.id === selectedId ? "bg-accent font-medium text-white" : "text-fg hover:bg-hover"
               }`}
               title={w.path}
               aria-current={w.id === selectedId}
               onClick={() => onSelect(w.id)}
             >
-              {w.name}
+              <svg
+                aria-hidden
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                className="shrink-0 opacity-80"
+              >
+                <path
+                  fill="currentColor"
+                  d="M1.5 4A1.5 1.5 0 0 1 3 2.5h3.1l1.5 1.5H13A1.5 1.5 0 0 1 14.5 5.5v6.5A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12z"
+                />
+              </svg>
+              <span className="truncate">{w.name}</span>
             </button>
             <button
-              className="px-2 text-muted opacity-0 group-hover:opacity-100 hover:text-zinc-100 focus:opacity-100"
+              className="ml-0.5 rounded-full px-1.5 text-muted opacity-0 transition group-hover:opacity-100 hover:bg-hover hover:text-fg focus:opacity-100"
               aria-label={t("workspaces.remove", { name: w.name })}
               title={t("workspaces.remove", { name: w.name })}
               onClick={() => onRemove(w.id)}
@@ -55,24 +68,24 @@ export function Sidebar({ workspaces, selectedId, error, onSelect, onAdd, onRemo
           </li>
         ))}
       </ul>
-      <form onSubmit={submit} className="border-t border-line p-2">
-        <label className="mb-1 block text-xs text-muted" htmlFor="ws-path">
+      <form onSubmit={submit} className="border-t border-line p-3">
+        <label className="mb-1.5 block text-[11px] font-medium text-muted" htmlFor="ws-path">
           {t("workspaces.addLabel")}
         </label>
         <div className="flex gap-1">
           <input
             id="ws-path"
-            className="min-w-0 flex-1 rounded border border-line bg-ink px-2 py-1 text-xs outline-none focus:border-accent"
+            className={`min-w-0 flex-1 px-2 py-1 text-xs ${field}`}
             placeholder="C:\projetos\app"
             value={path}
             onChange={(e) => setPath(e.target.value)}
           />
-          <button className="rounded border border-line px-2 text-xs hover:bg-line" type="submit">
+          <button className={`text-xs ${primaryButton}`} type="submit">
             {t("workspaces.add")}
           </button>
         </div>
         {error && (
-          <p className="mt-1 text-xs text-red-400" role="alert">
+          <p className="mt-1.5 text-xs text-danger" role="alert">
             {error}
           </p>
         )}

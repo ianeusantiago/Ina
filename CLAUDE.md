@@ -32,7 +32,7 @@ Tauri 2 + React + TypeScript (strict) + Vite + Tailwind + xterm.js; Rust no back
 ## Ferramentas liberadas (usar quando pertinente, sem pedir)
 - Superpowers: brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, using-git-worktrees, dispatching-parallel-agents, subagent-driven-development, requesting-code-review, verification-before-completion.
 - Playwright: testes E2E da UI (Vite dev server; app Tauri via CDP do WebView2).
-- frontend-design / ui-ux-pro-max / ui-styling: UI escura, minimalista (preto, grafite, cinza).
+- frontend-design / ui-ux-pro-max / ui-styling: UI estilo macOS, minimalista, clara por padrão (modo escuro e sistema opcionais).
 - code-review, security-review, simplify: antes de fechar cada fase.
 - Instalar plugin/MCP/dependência NOVA: mostrar propósito + comando e pedir aprovação.
 
