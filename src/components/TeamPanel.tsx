@@ -21,6 +21,7 @@ import { IntegrationBar } from "./IntegrationBar";
 import { InterfaceView, type Member } from "./InterfaceView";
 import { ReadyBanner } from "./ReadyBanner";
 import { TeamProgress } from "./TeamProgress";
+import { notify } from "../lib/notify";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { TerminalPane, type PendingPermission } from "./TerminalPane";
@@ -202,15 +203,25 @@ function TeamRun({
     (v) => (v ? "1" : ""),
   );
   const [permissions, setPermissions] = useState<Record<string, PendingPermission>>({});
-  const onPermission = useCallback((agentId: string, pending: PendingPermission | null) => {
-    setPermissions((all) => {
-      if (!pending) {
-        if (!(agentId in all)) return all;
-        return Object.fromEntries(Object.entries(all).filter(([id]) => id !== agentId));
+  const onPermission = useCallback(
+    (agentId: string, pending: PendingPermission | null) => {
+      if (pending && !document.hasFocus()) {
+        const name =
+          agentId === ORCHESTRATOR_ID
+            ? t("team.orchestrator")
+            : (p.agents.find((a) => a.id === agentId)?.name ?? agentId);
+        void notify(t("notify.permission.title", { name }), t("notify.permission.body"));
       }
-      return { ...all, [agentId]: pending };
-    });
-  }, []);
+      setPermissions((all) => {
+        if (!pending) {
+          if (!(agentId in all)) return all;
+          return Object.fromEntries(Object.entries(all).filter(([id]) => id !== agentId));
+        }
+        return { ...all, [agentId]: pending };
+      });
+    },
+    [t, p.agents],
+  );
   // Picking a member in the sidebar means talking to it: show the Interface.
   const [seenFocus, setSeenFocus] = useState<string | null>(null);
   if (focusAgent !== seenFocus) {

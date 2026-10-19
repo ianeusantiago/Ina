@@ -272,5 +272,23 @@
     "verified": "Tudo verificado",
     "merged": "Juntado no projeto",
     "problem": "Algo precisa de você"
+  },
+  "notify": {
+    "done": {
+      "title": "{{name}} terminou",
+      "body": "O trabalho foi concluído e verificado. Abra o INA para ver."
+    },
+    "failed": {
+      "title": "{{name}} não conseguiu terminar",
+      "body": "Algo deu errado. Abra o INA para ver o que aconteceu."
+    },
+    "blocked": {
+      "title": "{{name}} está travado",
+      "body": "O agente precisa de algo para continuar. Abra o INA."
+    },
+    "permission": {
+      "title": "{{name}} pede sua permissão",
+      "body": "Abra o INA para permitir ou negar."
+    }
   }
 }

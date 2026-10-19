@@ -272,5 +272,23 @@
     "verified": "All verified",
     "merged": "Merged into project",
     "problem": "Something needs you"
+  },
+  "notify": {
+    "done": {
+      "title": "{{name}} finished",
+      "body": "The work is done and verified. Open INA to see it."
+    },
+    "failed": {
+      "title": "{{name}} could not finish",
+      "body": "Something went wrong. Open INA to see what happened."
+    },
+    "blocked": {
+      "title": "{{name}} is blocked",
+      "body": "The agent needs something to continue. Open INA."
+    },
+    "permission": {
+      "title": "{{name}} asks for your permission",
+      "body": "Open INA to allow or deny."
+    }
   }
 }
