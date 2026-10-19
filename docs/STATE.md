@@ -1,8 +1,12 @@
 # INA — Estado
 
-**Fase atual:** 6 (design estilo macOS), branch `ianeusantiago/fase6-design`. Fases 1–5 no `main` (PR #3–#6).
+**Fase atual:** 6 (design estilo macOS) concluída e no `main` (PR #7, #8). Pausado em 2026-10-18.
 
-## Fase 6 — design estilo macOS
+## Fase 6 — design estilo macOS (PR #7 a3664c3, PR #8 48562bf)
+- PR #8: semáforo removido a pedido (moldura nativa do Windows); ícone novo (`src/assets/ina-icon.svg`, orquestrador + agentes); instalador NSIS gerado e instalado em `%LOCALAPPDATA%\INA` (atalhos Desktop/Iniciar).
+- Não verificado após PR #8: E2E.
+- Próximos passos possíveis: redesign estrutural mais ousado (sidebar alta, toolbar com ícones, equipe em cartões, terminais em abas) — usuário achou a mudança de estilo sutil; tirar título "INA" duplicado da toolbar.
+- Pendente fora do escopo: worktree `.claude/worktrees/fase4-pendencias` tem alterações não commitadas de outra sessão (módulo `transcript` inexistente, não compila); não tocadas.
 - Tema claro padrão + Escuro/Sistema (persistido, aplicado antes do primeiro paint); tokens semânticos em `index.css`; barra de título própria com semáforo (janela sem decorações, permissões `core:window:allow-*`); sidebar translúcida; terminal segue o tema.
 - Verificado: tsc/eslint/prettier, Vitest 2, Playwright 5/5 (fluxo real), capturas claro/escuro conferidas.
 - Não verificado: clique real em fechar/minimizar/maximizar (E2E não fecha a janela).
