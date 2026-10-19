@@ -6,6 +6,7 @@ import { setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
 import inaIcon from "./assets/ina-icon.svg";
 import { TitleBar } from "./components/TitleBar";
+import { UsageBar } from "./components/UsageBar";
 import { addWorkspace, listWorkspaces, removeWorkspace, type Workspace } from "./lib/workspaces";
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
           )}
         </div>
       </div>
+      <UsageBar />
     </main>
   );
 }
