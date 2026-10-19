@@ -60,6 +60,27 @@ pub struct AgentSpec {
     /// reports done. Approved together with the plan.
     #[serde(default)]
     pub verify: Vec<Check>,
+    /// CLI that runs this agent; chosen by the user before approval (the planner never sets it).
+    #[serde(default)]
+    pub cli: AgentCli,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentCli {
+    #[default]
+    Claude,
+    Codex,
+}
+
+impl AgentCli {
+    pub fn program(self) -> crate::policy::Program {
+        use crate::policy::Program;
+        match self {
+            Self::Claude => Program::Claude,
+            Self::Codex => Program::Codex,
+        }
+    }
 }
 
 pub const MAX_CHECKS: usize = 4;
@@ -545,6 +566,27 @@ impl PlanStore {
         u64::try_from(id).map_err(|_| PlanError::NotFound)
     }
 
+    /// Apply the user's CLI choices to a pending plan; unknown agent ids are rejected.
+    pub fn set_clis(
+        &self,
+        db: &Store,
+        id: u64,
+        clis: &HashMap<String, AgentCli>,
+    ) -> Result<Plan, PlanError> {
+        let (_, mut plan) = self.pending(db, id)?;
+        if clis.keys().any(|k| plan.agents.iter().all(|a| &a.id != k)) {
+            return Err(PlanError::NotFound);
+        }
+        for a in &mut plan.agents {
+            if let Some(cli) = clis.get(&a.id) {
+                a.cli = *cli;
+            }
+        }
+        let json = serde_json::to_string(&plan).map_err(json_err)?;
+        db.set_pending_plan(to_id(id)?, &json).map_err(db_err)?;
+        Ok(plan)
+    }
+
     /// A plan still awaiting approval.
     pub fn pending(&self, db: &Store, id: u64) -> Result<(i64, Plan), PlanError> {
         let (workspace_id, plan, worktrees) = decode(db.get_team(to_id(id)?).map_err(db_err)?)?;
@@ -692,6 +734,7 @@ mod tests {
             acceptance: vec!["tests pass".into()],
             depends_on: deps.iter().map(|d| d.to_string()).collect(),
             verify: vec![],
+            cli: AgentCli::Claude,
         }
     }
 
@@ -792,6 +835,27 @@ mod tests {
         );
         assert!(parse_planner_output("not json").is_err());
         assert!(parse_planner_output(r#"{"is_error":false}"#).is_err());
+    }
+
+    #[test]
+    fn cli_choice_applies_only_before_approval() {
+        let db = Store::in_memory().unwrap();
+        let ws = db.add_workspace(&std::env::temp_dir()).unwrap();
+        let store = PlanStore::default();
+        let p = plan(vec![agent("api", &[]), agent("ui", &[])]);
+        let id = store.insert(&db, ws.id, &p).unwrap();
+        let unknown = HashMap::from([("nope".to_string(), AgentCli::Codex)]);
+        assert!(store.set_clis(&db, id, &unknown).is_err());
+        let clis = HashMap::from([("ui".to_string(), AgentCli::Codex)]);
+        store.set_clis(&db, id, &clis).unwrap();
+        let (_, saved) = store.pending(&db, id).unwrap();
+        assert_eq!(saved.agents[0].cli, AgentCli::Claude);
+        assert_eq!(saved.agents[1].cli, AgentCli::Codex);
+        store.approve(&db, id, &HashMap::new()).unwrap();
+        assert!(matches!(
+            store.set_clis(&db, id, &clis),
+            Err(PlanError::AlreadyApproved)
+        ));
     }
 
     #[test]

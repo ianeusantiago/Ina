@@ -25,6 +25,7 @@ pub enum PolicyError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Program {
     Claude,
+    Codex,
     Shell,
     Git,
     // Verification commands approved with a plan.
@@ -38,6 +39,7 @@ impl Program {
     fn exe_name(self) -> &'static str {
         match self {
             Program::Claude => "claude.exe",
+            Program::Codex => "codex.exe",
             Program::Shell => "powershell.exe",
             Program::Git => "git.exe",
             Program::Cargo => "cargo.exe",
@@ -48,15 +50,27 @@ impl Program {
     }
 }
 
+/// Native Codex binary inside the npm package (`@openai/codex`), relative to the npm bin dir.
+const CODEX_NPM_EXE: &str = "node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe";
+
 /// Resolve to an absolute `.exe` on PATH. `.cmd`/`.bat` shims are never used: they run through
 /// cmd.exe, whose argument parsing allows injection.
 pub fn resolve_program(program: Program, path_var: &OsStr) -> Result<PathBuf, PolicyError> {
     let name = program.exe_name();
-    std::env::split_paths(path_var)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join(name))
-        .find(|p| p.is_file())
-        .ok_or(PolicyError::ProgramNotFound(name))
+    let dirs = || std::env::split_paths(path_var).filter(|dir| dir.is_absolute());
+    let found = dirs().map(|dir| dir.join(name)).find(|p| p.is_file());
+    // npm installs Codex as a `.cmd` shim; use the native binary bundled next to it instead.
+    let npm_codex = || {
+        dirs()
+            .filter(|dir| dir.join("codex.cmd").is_file())
+            .map(|dir| dir.join(CODEX_NPM_EXE))
+            .find(|p| p.is_file())
+    };
+    match program {
+        Program::Codex => found.or_else(npm_codex),
+        _ => found,
+    }
+    .ok_or(PolicyError::ProgramNotFound(name))
 }
 
 /// `cwd` must exist and resolve (after symlinks/`..`) to `root` or a directory inside it.
@@ -202,6 +216,22 @@ mod tests {
         // Relative PATH entries are ignored (would resolve against the current directory).
         let rel = std::env::join_paths([PathBuf::from(".")]).unwrap();
         assert!(resolve_program(Program::Shell, &rel).is_err());
+    }
+
+    #[test]
+    fn resolves_codex_native_binary_behind_npm_shim() {
+        let dir = tempdir("codex");
+        let path = std::env::join_paths([dir.clone()]).unwrap();
+        let exe = dir.join(CODEX_NPM_EXE);
+        fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        fs::write(&exe, "").unwrap();
+        // Without the shim the bundled binary is not considered.
+        assert!(resolve_program(Program::Codex, &path).is_err());
+        fs::write(dir.join("codex.cmd"), "").unwrap();
+        assert_eq!(resolve_program(Program::Codex, &path).unwrap(), exe);
+        // Other programs never use the npm fallback.
+        fs::write(dir.join("claude.cmd"), "").unwrap();
+        assert!(resolve_program(Program::Claude, &path).is_err());
     }
 
     #[test]

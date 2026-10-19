@@ -5,6 +5,8 @@ import { usePersistedState } from "../lib/usePersistedState";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   type TaskStatus,
+  AGENT_CLIS,
+  type AgentCli,
   approvePlan,
   checkText,
   generatePlan,
@@ -289,11 +291,16 @@ export function TeamPanel({
       const trusted = await workspaceTrusted(workspaceId);
       setUntrusted(!trusted);
       if (!trusted) return;
-      await approvePlan(draft.id);
+      await approvePlan(draft.id, Object.fromEntries(draft.plan.agents.map((a) => [a.id, a.cli])));
       setStage({ kind: "running", draft, resumed: false });
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  const setCli = (draft: PlanDraft, id: string, cli: AgentCli) => {
+    const agents = draft.plan.agents.map((a) => (a.id === id ? { ...a, cli } : a));
+    setStage({ kind: "review", draft: { ...draft, plan: { ...draft.plan, agents } } });
   };
 
   if (stage.kind === "running") {
@@ -382,8 +389,24 @@ export function TeamPanel({
             <ol className="flex flex-col gap-2">
               {stage.draft.plan.agents.map((a) => (
                 <li key={a.id} className="rounded-lg bg-hover p-2.5 ring-1 ring-line text-xs">
-                  <div className="font-medium text-fg">
-                    {a.name} <span className="text-muted">· {a.role}</span>
+                  <div className="flex items-center gap-2 font-medium text-fg">
+                    <span className="flex-1">
+                      {a.name} <span className="text-muted">· {a.role}</span>
+                    </span>
+                    <label className="flex items-center gap-1 text-[11px] font-normal text-muted">
+                      {t("team.cli")}
+                      <select
+                        className="aero-pill px-2 py-0.5 text-[11px] text-fg outline-none"
+                        value={a.cli}
+                        onChange={(e) => setCli(stage.draft, a.id, e.target.value as AgentCli)}
+                      >
+                        {AGENT_CLIS.map((c) => (
+                          <option key={c} value={c}>
+                            {t(`team.clis.${c}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                   <div className="mt-1">{a.task}</div>
                   <div className="mt-1 text-muted">

@@ -480,7 +480,7 @@ impl Registry<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::Mode;
+    use crate::plan::{AgentCli, Mode};
 
     fn tempdir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("ina-tasks-{name}-{}", std::process::id()));
@@ -499,6 +499,7 @@ mod tests {
             acceptance: vec!["tests pass".into()],
             depends_on: vec![],
             verify: vec![],
+            cli: AgentCli::Claude,
         }
     }
 

@@ -10,7 +10,12 @@ export interface AgentSpec {
   dependsOn: string[];
   /** Verification commands, approved with the plan. */
   verify: Check[];
+  /** CLI that runs the agent; chosen before approval. */
+  cli: AgentCli;
 }
+
+export const AGENT_CLIS = ["claude", "codex"] as const;
+export type AgentCli = (typeof AGENT_CLIS)[number];
 
 export interface Check {
   program: "cargo" | "node" | "python" | "pytest";
@@ -34,7 +39,8 @@ export const ORCHESTRATOR_ID = "orchestrator";
 
 export const generatePlan = (workspaceId: number, request: string) =>
   invoke<PlanDraft>("plan_generate", { workspaceId, request });
-export const approvePlan = (planId: number) => invoke<null>("plan_approve", { planId });
+export const approvePlan = (planId: number, clis: Record<string, AgentCli>) =>
+  invoke<null>("plan_approve", { planId, clis });
 export const workspaceTrusted = (workspaceId: number) =>
   invoke<boolean>("workspace_trusted", { workspaceId });
 
