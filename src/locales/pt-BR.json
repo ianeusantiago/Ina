@@ -171,5 +171,33 @@
     "claudeEmpty": "Aparece após uma sessão Claude do INA responder",
     "unavailable": "Indisponível",
     "loading": "Carregando…"
+  },
+  "activity": {
+    "view": "Visualização",
+    "views": {
+      "interface": "Interface",
+      "terminals": "Terminais"
+    },
+    "members": "Membros da equipe",
+    "notStarted": "Não iniciado.",
+    "start": "Iniciar agente",
+    "send": "Enviar",
+    "placeholder": "Mensagem para {{name}}…",
+    "task": "Tarefa",
+    "stalled": "Sem progresso há um tempo. O agente pode estar esperando uma resposta no terminal.",
+    "openTerminals": "Abrir terminais",
+    "doing": {
+      "thinking": "Pensando…",
+      "sending": "Enviando…",
+      "shell": "Executando comandos…",
+      "edit": "Editando {{file}}…",
+      "write": "Criando {{file}}…",
+      "read": "Lendo {{file}}…",
+      "search": "Procurando no projeto…",
+      "web": "Pesquisando na web…",
+      "agent": "Passando parte do trabalho para um ajudante…",
+      "todo": "Organizando os passos…",
+      "other": "Trabalhando…"
+    }
   }
 }

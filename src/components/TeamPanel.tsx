@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ghostButton, field, primaryButton } from "./ui";
 import { usePersistedState } from "../lib/usePersistedState";
@@ -17,6 +17,7 @@ import {
   type PlanDraft,
 } from "../lib/team";
 import { IntegrationBar } from "./IntegrationBar";
+import { InterfaceView, type Member } from "./InterfaceView";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { TerminalPane } from "./TerminalPane";
@@ -33,6 +34,10 @@ const AUTO_START_KEY = "ina.autoStart";
 const parseAutoStart = (v: string | null) => v !== "off";
 
 const SPLIT_KEY = "ina.teamSplit";
+const VIEW_KEY = "ina.view";
+const VIEWS = ["interface", "terminals"] as const;
+const parseView = (v: string | null): (typeof VIEWS)[number] =>
+  v === "terminals" ? "terminals" : "interface";
 const SPLIT_MIN = 10;
 const SPLIT_MAX = 70;
 
@@ -94,9 +99,9 @@ function AgentTerminal({
   agentId,
   title,
   subtitle,
-  lazy,
+  open,
+  onOpen,
   waitingFor,
-  autoOpen,
   status,
   maximized,
   onToggleMaximize,
@@ -107,17 +112,14 @@ function AgentTerminal({
   subtitle: string;
   maximized: boolean;
   onToggleMaximize: () => void;
-  /** Resumed teams open sessions on demand, so the task is not re-sent unasked. */
-  lazy: boolean;
+  /** Session started; owned by TeamRun so the interface view can start it too. */
+  open: boolean;
+  onOpen: () => void;
   /** Prerequisites not done yet; the backend refuses to start until they are. */
   waitingFor: string[];
-  /** Open now (auto-start once prerequisites are done). Latched: never closes a session. */
-  autoOpen: boolean;
   status?: TaskStatus;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(!lazy);
-  if (autoOpen && !open) setOpen(true);
   const spawn = useMemo<Spawner>(
     () => (id, cols, rows, onEvent) => spawnAgent(planId, agentId, id, cols, rows, onEvent),
     [planId, agentId],
@@ -136,7 +138,7 @@ function AgentTerminal({
             </span>
           )
         )}
-        <button className={button} onClick={() => setOpen(true)}>
+        <button className={button} onClick={onOpen}>
           {t("team.openTerminal")}
         </button>
       </section>
@@ -174,10 +176,104 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   // Hidden, not unmounted: a maximized pane must not kill the other sessions.
   const cell = (agentId: string) => (maxId !== null && maxId !== agentId ? "hidden" : "min-h-0");
   const toggle = (agentId: string) => () => setMaxId((cur) => (cur === agentId ? null : agentId));
+  const [mode, changeMode] = usePersistedState(VIEW_KEY, parseView);
+  // Resumed teams open sessions on demand, so the task is not re-sent unasked.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(
+    () =>
+      new Set(
+        resumed
+          ? []
+          : [
+              ORCHESTRATOR_ID,
+              ...p.agents
+                .filter((a) => (prerequisites.get(a.id) ?? []).length === 0)
+                .map((a) => a.id),
+            ],
+      ),
+  );
+  const openSession = useCallback(
+    (agentId: string) => setOpened((cur) => (cur.has(agentId) ? cur : new Set([...cur, agentId]))),
+    [],
+  );
+  const waiting = (agentId: string) =>
+    (prerequisites.get(agentId) ?? []).filter((d) => status.get(d) !== "done");
+  // Auto-start once prerequisites are done. Latched: never closes a session.
+  const autoOpen = p.agents
+    .filter((a) => {
+      const prereqs = prerequisites.get(a.id) ?? [];
+      return (
+        autoStart &&
+        prereqs.length > 0 &&
+        waiting(a.id).length === 0 &&
+        status.get(a.id) === "pending" &&
+        !opened.has(a.id)
+      );
+    })
+    .map((a) => a.id)
+    .join(",");
+  useEffect(() => {
+    if (autoOpen) autoOpen.split(",").forEach(openSession);
+  }, [autoOpen, openSession]);
+  const members: Member[] = [
+    {
+      id: ORCHESTRATOR_ID,
+      name: t("team.orchestrator"),
+      subtitle: p.summary,
+      task: p.summary,
+      cli: "claude",
+      open: opened.has(ORCHESTRATOR_ID),
+      waitingFor: [],
+    },
+    ...p.agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      subtitle: a.role,
+      task: a.task,
+      cli: a.cli,
+      open: opened.has(a.id),
+      status: status.get(a.id),
+      waitingFor: waiting(a.id),
+    })),
+  ];
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <IntegrationBar planId={id} />
-      <div ref={view} className="flex min-h-0 flex-1 flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <IntegrationBar planId={id} />
+        </div>
+        <div
+          role="radiogroup"
+          aria-label={t("activity.view")}
+          className="aero-pill flex shrink-0 p-0.5 text-[12px] font-medium"
+        >
+          {VIEWS.map((v) => (
+            <button
+              key={v}
+              role="radio"
+              aria-checked={mode === v}
+              onClick={() => changeMode(v)}
+              className={`rounded-full px-3 py-1 transition ${mode === v ? "aero-btn" : "text-fg-2 hover:text-fg"}`}
+            >
+              <span className="relative">{t(`activity.views.${v}`)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Both views stay mounted: switching keeps the selected member, drafts and sessions. */}
+      <div className={`min-h-0 flex-1 ${mode === "interface" ? "" : "hidden"}`}>
+        <InterfaceView
+          planId={id}
+          members={members}
+          visible={mode === "interface"}
+          onOpen={openSession}
+          onShowTerminals={() => changeMode("terminals")}
+        />
+      </div>
+      {/* Hidden, not unmounted: the interface reads sessions that keep running here. */}
+      <div
+        ref={view}
+        className={`flex min-h-0 flex-1 flex-col gap-1 ${mode === "interface" ? "hidden" : ""}`}
+      >
         <div
           className="grid min-h-0 shrink-0 grid-cols-2 gap-2 overflow-hidden"
           style={{ height: `${split}%` }}
@@ -205,21 +301,14 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
               agentId={ORCHESTRATOR_ID}
               title={t("team.orchestrator")}
               subtitle={p.summary}
-              lazy={resumed}
+              open={opened.has(ORCHESTRATOR_ID)}
+              onOpen={() => openSession(ORCHESTRATOR_ID)}
               waitingFor={[]}
-              autoOpen={false}
               maximized={maxId === ORCHESTRATOR_ID}
               onToggleMaximize={toggle(ORCHESTRATOR_ID)}
             />
           </div>
           {p.agents.map((a) => {
-            const prereqs = prerequisites.get(a.id) ?? [];
-            const waitingFor = prereqs.filter((d) => status.get(d) !== "done");
-            const autoOpen =
-              autoStart &&
-              prereqs.length > 0 &&
-              waitingFor.length === 0 &&
-              status.get(a.id) === "pending";
             return (
               <div key={a.id} className={cell(a.id)}>
                 <AgentTerminal
@@ -227,9 +316,9 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
                   agentId={a.id}
                   title={a.name}
                   subtitle={a.role}
-                  lazy={resumed || prereqs.length > 0}
-                  waitingFor={waitingFor}
-                  autoOpen={autoOpen}
+                  open={opened.has(a.id)}
+                  onOpen={() => openSession(a.id)}
+                  waitingFor={waiting(a.id)}
                   status={status.get(a.id)}
                   maximized={maxId === a.id}
                   onToggleMaximize={toggle(a.id)}

@@ -538,6 +538,8 @@ pub struct PlanStore {
     approved: Mutex<HashMap<u64, Team>>,
     /// Teams whose worktrees are being removed: the background tick leaves them alone.
     cleaning: Mutex<std::collections::HashSet<u64>>,
+    /// (team, agent) -> Claude Code session id of the agent's latest session (its log name).
+    logs: Mutex<HashMap<(u64, String), String>>,
 }
 
 impl PlanStore {
@@ -673,6 +675,17 @@ impl PlanStore {
         db.close_team(to_id(id)?).map_err(db_err)?;
         cache.remove(&id);
         Ok(())
+    }
+
+    pub fn set_log(&self, team: u64, agent: &str, session_id: &str) {
+        let mut g = self.logs.lock().expect("log map poisoned");
+        g.insert((team, agent.to_owned()), session_id.to_owned());
+    }
+
+    /// Claude session id of the agent's latest session started since INA launched.
+    pub fn log(&self, team: u64, agent: &str) -> Option<String> {
+        let g = self.logs.lock().expect("log map poisoned");
+        g.get(&(team, agent.to_owned())).cloned()
     }
 
     pub fn add_session(&self, team: u64, session: &str, agent: &str) {

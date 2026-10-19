@@ -1,6 +1,22 @@
 # INA — Estado
 
-**Fase atual:** 6 (design estilo macOS), branch `ianeusantiago/fase6-design`. Fases 1–5 no `main` (PR #3–#6).
+**Fase atual:** 7 — Interface tipo chat, branch `ianeusantiago/interface` (worktree `.claude/worktrees/ina-view`). Pausado em 2026-10-20. No `main`: Aero (PR #9), Codex por agente (PR #10), rodapé de uso (PR #11).
+
+## O que fazer ao retomar (usuário)
+1. Abrir o INA, criar uma equipe NOVA (equipes antigas não têm `--session-id`).
+2. Na Interface: mandar "hello" a um agente e conferir: mensagem aparece na hora, "Pensando…/Editando X…" enquanto trabalha, resposta em balão.
+3. Trocar Interface ↔ Terminais: deve manter agente selecionado e rascunho.
+4. Dizer o que ainda está errado na UX; se ok, pedir commit + merge.
+5. Opcional: testar um agente Codex (nunca rodado de verdade).
+
+## Fase 7 — em andamento (não commitado em main; WIP na branch)
+- Interface (padrão) ↔ Terminais (botão ao lado da barra de integração); ambos ficam montados.
+- `activity.rs`: lê o log do próprio CLI (Claude `~/.claude/projects/<cwd>/<session>.jsonl`; Codex `~/.codex/sessions/**/rollout-*.jsonl` por cwd). Sessões Claude do INA recebem `--session-id` fixo (`PlanStore::set_log/log`) — corrige o bug de ler o log errado.
+- `agent_send`: digita uma linha no terminal vivo do agente (sem caracteres de controle, Enter separado).
+- Chat: cartão "Tarefa" (texto do plano no lugar do prompt do INA), balões quadrados (`aero-card`), mensagem otimista, indicador "Pensando…/Editando X…", aviso após 45 s parado.
+- Removido: resumo por Haiku (`digest`) e "detalhes técnicos" (usuário quer a conversa real).
+- Verificado: Rust 66, clippy, tsc/eslint, Vitest 4. NÃO verificado: E2E (app caiu por RAM; última rodada inválida — CDP desligado). E2E novo testa enviar "pong" e receber resposta.
+- Pendente: teste de redimensionar falhou 1x na rodada completa (passou sozinho); investigar se repetir.
 
 ## Fase 6 — design estilo macOS
 - Tema claro padrão + Escuro/Sistema (persistido, aplicado antes do primeiro paint); tokens semânticos em `index.css`; barra de título própria com semáforo (janela sem decorações, permissões `core:window:allow-*`); sidebar translúcida; terminal segue o tema.

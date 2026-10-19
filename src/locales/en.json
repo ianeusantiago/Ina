@@ -171,5 +171,33 @@
     "claudeEmpty": "Shown after an INA Claude session replies",
     "unavailable": "Unavailable",
     "loading": "Loading…"
+  },
+  "activity": {
+    "view": "View",
+    "views": {
+      "interface": "Interface",
+      "terminals": "Terminals"
+    },
+    "members": "Team members",
+    "notStarted": "Not started.",
+    "start": "Start agent",
+    "send": "Send",
+    "placeholder": "Message {{name}}…",
+    "task": "Task",
+    "stalled": "No progress for a while. The agent may be waiting for an answer in its terminal.",
+    "openTerminals": "Open terminals",
+    "doing": {
+      "thinking": "Thinking…",
+      "sending": "Sending…",
+      "shell": "Running commands…",
+      "edit": "Editing {{file}}…",
+      "write": "Creating {{file}}…",
+      "read": "Reading {{file}}…",
+      "search": "Looking through the project…",
+      "web": "Searching the web…",
+      "agent": "Handing part of the work to a helper…",
+      "todo": "Organizing the steps…",
+      "other": "Working…"
+    }
   }
 }

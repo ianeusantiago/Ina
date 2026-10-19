@@ -1,3 +1,4 @@
+mod activity;
 mod messages;
 mod plan;
 mod policy;
@@ -672,6 +673,10 @@ async fn pty_spawn_agent(
         if let Some(s) = usage::claude_settings(&exe, &claude_usage_file(&app)?) {
             args.extend(["--settings".to_string(), s]);
         }
+        // Known session id: the interface reads exactly this session's log.
+        let session_id = activity::new_session_id();
+        args.extend(["--session-id".to_string(), session_id.clone()]);
+        plans.set_log(plan_id, &agent_id, &session_id);
     }
     let mut spec = policy::authorize(program, args, &root, &cwd, pty.count(), &path_var)
         .map_err(|e| e.to_string())?;
@@ -1323,6 +1328,71 @@ fn pty_kill(pty: State<'_, PtyManager>, id: String) -> Result<(), String> {
     pty.kill(&id).map_err(|e| e.to_string())
 }
 
+/// Working directory and CLI of a team member (the orchestrator runs Claude in the root).
+fn member(
+    store: &Store,
+    plans: &PlanStore,
+    plan_id: u64,
+    agent_id: &str,
+) -> Result<(PathBuf, plan::AgentCli), String> {
+    let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
+    if agent_id == plan::ORCHESTRATOR_ID {
+        return Ok((
+            workspace_root(store, team.workspace_id)?,
+            plan::AgentCli::Claude,
+        ));
+    }
+    let agent = team.plan.agent(agent_id).map_err(|e| e.to_string())?;
+    let wt = team
+        .worktrees
+        .get(agent_id)
+        .ok_or("agent has no worktree")?;
+    Ok((wt.path.clone(), agent.cli))
+}
+
+/// What a team member did, from its CLI's session log; empty before its first session.
+#[tauri::command]
+async fn agent_activity(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+    agent_id: String,
+) -> Result<Vec<activity::Event>, String> {
+    let (cwd, cli) = member(&store, &plans, plan_id, &agent_id)?;
+    let session_id = plans.log(plan_id, &agent_id);
+    blocking(
+        move || match activity::find_log(cli, &cwd, session_id.as_deref()) {
+            Some(file) => activity::read_log(cli, &file).map_err(|e| e.to_string()),
+            None => Ok(vec![]),
+        },
+    )
+    .await
+}
+
+/// Type a line into a team member's live terminal (the interface's message box).
+#[tauri::command]
+fn agent_send(
+    pty: State<'_, PtyManager>,
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+    agent_id: String,
+    text: String,
+) -> Result<(), String> {
+    member(&store, &plans, plan_id, &agent_id)?;
+    let line = activity::terminal_input(&text).ok_or("message is empty or too long")?;
+    let session = plans
+        .agent_sessions(plan_id, &agent_id)
+        .into_iter()
+        .rev()
+        .find(|s| pty.is_running(s))
+        .ok_or("no running session for this agent")?;
+    pty.write(&session, line.as_bytes())
+        .map_err(|e| e.to_string())?;
+    // Enter on its own: the TUIs treat text and Enter arriving together as a paste.
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    pty.write(&session, b"\r").map_err(|e| e.to_string())
+}
 pub const USAGE_SINK_FLAG: &str = usage::SINK_FLAG;
 
 pub fn usage_sink(file: &std::path::Path) {
@@ -1583,6 +1653,8 @@ pub fn run() {
             team_tasks,
             claude_setup,
             usage_read,
+            agent_activity,
+            agent_send,
             team_messages,
             team_send,
             message_decide,
