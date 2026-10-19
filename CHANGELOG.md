@@ -2,7 +2,12 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — Phase 4 (known issues)
+## [Unreleased] — Phase 5 (known issues)
+
+### Security
+- Orchestrator deny list also covers the PowerShell tool and more git forms (`-C`, `-c`, `restore`, `stash`, `worktree`, `update-ref`, `branch -f/-D`); rules verified with `claude -p`.
+
+## Phase 4 (known issues)
 
 ### Fixed
 - A task left `running` with no live session (two sessions of an agent exiting together) is finished by the tick after two ticks in a row, not only at startup.
