@@ -327,5 +327,9 @@
       "team": "Make this project's code simpler and better organized without changing what it does. Use 2 agents: one to reorganize and clean up, one to make sure with tests that everything still works the same.",
       "home": "Create a workspace called Cleanup and make the code simpler and better organized without changing what it does. Use 2 agents: one to clean up and one to make sure with tests that everything still works."
     }
+  },
+  "resume": {
+    "continue": "Continue conversation",
+    "fresh": "Start over"
   }
 }

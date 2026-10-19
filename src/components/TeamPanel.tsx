@@ -15,6 +15,7 @@ import {
   planDraft,
   ORCHESTRATOR_ID,
   workspaceTrusted,
+  teamResumable,
   type PlanDraft,
 } from "../lib/team";
 import { IntegrationBar } from "./IntegrationBar";
@@ -107,6 +108,8 @@ function AgentTerminal({
   subtitle,
   open,
   onOpen,
+  resume,
+  canResume,
   waitingFor,
   status,
   maximized,
@@ -122,15 +125,18 @@ function AgentTerminal({
   onToggleMaximize: () => void;
   /** Session started; owned by TeamRun so the interface view can start it too. */
   open: boolean;
-  onOpen: () => void;
+  onOpen: (resume: boolean) => void;
+  /** Opened to continue the last conversation. */
+  resume: boolean;
+  canResume: boolean;
   /** Prerequisites not done yet; the backend refuses to start until they are. */
   waitingFor: string[];
   status?: TaskStatus;
 }) {
   const { t } = useTranslation();
   const spawn = useMemo<Spawner>(
-    () => (id, cols, rows, onEvent) => spawnAgent(planId, agentId, id, cols, rows, onEvent),
-    [planId, agentId],
+    () => (id, cols, rows, onEvent) => spawnAgent(planId, agentId, id, cols, rows, onEvent, resume),
+    [planId, agentId, resume],
   );
   const permission = useCallback(
     (pending: PendingPermission | null) => onPermission(agentId, pending),
@@ -150,9 +156,16 @@ function AgentTerminal({
             </span>
           )
         )}
-        <button className={button} onClick={onOpen}>
-          {t("team.openTerminal")}
-        </button>
+        <div className="flex gap-2">
+          {canResume && (
+            <button className={button} onClick={() => onOpen(true)}>
+              {t("resume.continue")}
+            </button>
+          )}
+          <button className={button} onClick={() => onOpen(false)}>
+            {canResume ? t("resume.fresh") : t("team.openTerminal")}
+          </button>
+        </div>
       </section>
     );
   }
@@ -246,10 +259,17 @@ function TeamRun({
             ],
       ),
   );
-  const openSession = useCallback(
-    (agentId: string) => setOpened((cur) => (cur.has(agentId) ? cur : new Set([...cur, agentId]))),
-    [],
-  );
+  const [resumed_, setResumed] = useState<ReadonlySet<string>>(() => new Set());
+  const [resumable, setResumable] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    teamResumable(id)
+      .then((ids) => setResumable(new Set(ids)))
+      .catch((e: unknown) => console.error("[resume]", e));
+  }, [id]);
+  const openSession = useCallback((agentId: string, resume = false) => {
+    if (resume) setResumed((cur) => new Set([...cur, agentId]));
+    setOpened((cur) => (cur.has(agentId) ? cur : new Set([...cur, agentId])));
+  }, []);
   const waiting = (agentId: string) =>
     (prerequisites.get(agentId) ?? []).filter((d) => status.get(d) !== "done");
   // Auto-start once prerequisites are done. Latched: never closes a session.
@@ -267,7 +287,7 @@ function TeamRun({
     .map((a) => a.id)
     .join(",");
   useEffect(() => {
-    if (autoOpen) autoOpen.split(",").forEach(openSession);
+    if (autoOpen) autoOpen.split(",").forEach((a) => openSession(a));
   }, [autoOpen, openSession]);
   const members: Member[] = [
     {
@@ -277,6 +297,7 @@ function TeamRun({
       task: p.summary,
       cli: "claude",
       open: opened.has(ORCHESTRATOR_ID),
+      canResume: resumable.has(ORCHESTRATOR_ID),
       permission: permissions[ORCHESTRATOR_ID],
       waitingFor: [],
     },
@@ -287,6 +308,7 @@ function TeamRun({
       task: a.task,
       cli: a.cli,
       open: opened.has(a.id),
+      canResume: resumable.has(a.id),
       permission: permissions[a.id],
       status: status.get(a.id),
       waitingFor: waiting(a.id),
@@ -363,7 +385,9 @@ function TeamRun({
               title={t("team.orchestrator")}
               subtitle={p.summary}
               open={opened.has(ORCHESTRATOR_ID)}
-              onOpen={() => openSession(ORCHESTRATOR_ID)}
+              onOpen={(r) => openSession(ORCHESTRATOR_ID, r)}
+              resume={resumed_.has(ORCHESTRATOR_ID)}
+              canResume={resumable.has(ORCHESTRATOR_ID)}
               waitingFor={[]}
               maximized={maxId === ORCHESTRATOR_ID}
               onToggleMaximize={toggle(ORCHESTRATOR_ID)}
@@ -379,7 +403,9 @@ function TeamRun({
                   title={a.name}
                   subtitle={a.role}
                   open={opened.has(a.id)}
-                  onOpen={() => openSession(a.id)}
+                  onOpen={(r) => openSession(a.id, r)}
+                  resume={resumed_.has(a.id)}
+                  canResume={resumable.has(a.id)}
                   waitingFor={waiting(a.id)}
                   status={status.get(a.id)}
                   maximized={maxId === a.id}

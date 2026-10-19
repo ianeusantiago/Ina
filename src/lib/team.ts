@@ -86,6 +86,8 @@ export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
 /** Hides a team (stops its sessions); its worktrees and branches stay on disk. */
 export const archiveTeam = (planId: number) => invoke<null>("team_archive", { planId });
+/** Members whose last conversation can be continued (`--resume`). */
+export const teamResumable = (planId: number) => invoke<string[]>("team_resumable", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
   invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
 

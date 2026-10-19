@@ -27,6 +27,8 @@ export interface Member {
   open: boolean;
   status?: TaskStatus;
   waitingFor: string[];
+  /** Its last conversation can be continued. */
+  canResume?: boolean;
   /** Permission menu waiting in its terminal. */
   permission?: PendingPermission;
 }
@@ -58,7 +60,7 @@ export function InterfaceView({
   /** Member picked in the sidebar. */
   selected: string;
   visible: boolean;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, resume?: boolean) => void;
   onShowTerminals: () => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -112,7 +114,7 @@ function Chat({
   onDraft: (text: string) => void;
   pending: Pending[];
   onPending: (id: string, update: (p: Pending[]) => Pending[]) => void;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, resume?: boolean) => void;
   onShowTerminals: () => void;
 }) {
   const { t } = useTranslation();
@@ -303,13 +305,20 @@ function Chat({
             </button>
           </form>
         ) : (
-          <button
-            className={primaryButton}
-            disabled={member.waitingFor.length > 0}
-            onClick={() => onOpen(member.id)}
-          >
-            {t("activity.start")}
-          </button>
+          <>
+            {member.canResume && (
+              <button className={primaryButton} onClick={() => onOpen(member.id, true)}>
+                {t("resume.continue")}
+              </button>
+            )}
+            <button
+              className={member.canResume ? ghostButton : primaryButton}
+              disabled={member.waitingFor.length > 0}
+              onClick={() => onOpen(member.id)}
+            >
+              {member.canResume ? t("resume.fresh") : t("activity.start")}
+            </button>
+          </>
         )}
       </footer>
     </section>

@@ -327,5 +327,9 @@
       "team": "Deixe o código deste projeto mais simples e organizado, sem mudar o que ele faz. Use 2 agentes: um para reorganizar e limpar, outro para garantir com testes que tudo continua funcionando igual.",
       "home": "Crie um workspace chamado Organização e deixe o código mais simples e organizado, sem mudar o que ele faz. Use 2 agentes: um para limpar e outro para garantir com testes que tudo continua igual."
     }
+  },
+  "resume": {
+    "continue": "Continuar conversa",
+    "fresh": "Começar do zero"
   }
 }

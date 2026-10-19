@@ -44,6 +44,8 @@ export function spawnAgent(
   cols: number,
   rows: number,
   onEvent: (msg: PtyMessage) => void,
+  /** Continue the agent's last Claude conversation instead of sending its task again. */
+  resume = false,
 ): Promise<null> {
   return invoke<null>("pty_spawn_agent", {
     planId,
@@ -52,5 +54,6 @@ export function spawnAgent(
     cols,
     rows,
     onEvent: channelFor(onEvent),
+    resume,
   });
 }
