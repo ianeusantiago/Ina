@@ -225,5 +225,11 @@
     "trust": "O Claude Code ainda não confia na pasta dos projetos do INA. Abra um terminal, rode o comando abaixo uma vez e aceite a confiança. Depois volte aqui.",
     "trustRetry": "Já confiei, continuar",
     "newConversation": "Nova conversa"
+  },
+  "permission": {
+    "title": "{{name}} pede sua permissão",
+    "allow": "Permitir",
+    "always": "Permitir sempre nesta sessão",
+    "deny": "Negar"
   }
 }

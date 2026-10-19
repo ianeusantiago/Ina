@@ -9,6 +9,7 @@ import {
   type Conversation,
 } from "../lib/activity";
 import type { AgentCli, TaskStatus } from "../lib/team";
+import type { PendingPermission } from "./TerminalPane";
 import { errorText, field, ghostButton, primaryButton } from "./ui";
 
 const POLL_MS = 2000;
@@ -26,6 +27,8 @@ export interface Member {
   open: boolean;
   status?: TaskStatus;
   waitingFor: string[];
+  /** Permission menu waiting in its terminal. */
+  permission?: PendingPermission;
 }
 
 /** A message typed here and not yet in the CLI's log. */
@@ -238,7 +241,32 @@ function Chat({
             <span className="italic">{doing}</span>
           </div>
         )}
-        {stalled && (
+        {member.permission && (
+          <div
+            role="alert"
+            className="aero-card flex flex-col gap-2 self-stretch px-4 py-3 text-[13px] text-fg"
+          >
+            <p className="font-semibold">{t("permission.title", { name: member.name })}</p>
+            <p className="text-fg-2">
+              {member.permission.prompt.action || member.permission.prompt.question}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {member.permission.prompt.options.map((o) => (
+                <button
+                  key={o.key}
+                  title={o.label}
+                  className={`text-xs ${o.kind === "allow" ? primaryButton : ghostButton} ${
+                    o.kind === "deny" ? "text-danger" : ""
+                  }`}
+                  onClick={() => member.permission?.answer(o.key)}
+                >
+                  {o.kind === "other" ? o.label : t(`permission.${o.kind}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {stalled && !member.permission && (
           <div className="aero-card flex items-center gap-3 self-start px-3.5 py-2.5 text-[12px] text-fg-2">
             <span>{t("activity.stalled")}</span>
             <button className={ghostButton} onClick={onShowTerminals}>

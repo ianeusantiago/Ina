@@ -225,5 +225,11 @@
     "trust": "Claude Code does not trust INA's projects folder yet. Open a terminal, run the command below once and accept the trust prompt. Then come back here.",
     "trustRetry": "Done, continue",
     "newConversation": "New conversation"
+  },
+  "permission": {
+    "title": "{{name}} asks for your permission",
+    "allow": "Allow",
+    "always": "Always allow this session",
+    "deny": "Deny"
   }
 }

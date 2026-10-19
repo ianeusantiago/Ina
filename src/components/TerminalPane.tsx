@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { terminalTheme } from "../lib/theme";
 import { killPty, resizePty, writePty, type Spawner } from "../lib/pty";
+import { parsePermission, samePrompt, type PermissionPrompt } from "../lib/permission";
 
 type Status =
   | { kind: "starting" }
@@ -14,16 +15,25 @@ type Status =
 
 const report = (e: unknown) => console.error("[pty]", e);
 
+/** A permission menu on screen and how to answer it (types the option's key). */
+export interface PendingPermission {
+  prompt: PermissionPrompt;
+  answer: (key: string) => void;
+}
+
 export function TerminalPane({
   title,
   subtitle,
   spawn,
   actions,
+  onPermission,
 }: {
   title: string;
   subtitle?: string;
   /** Extra header buttons. */
   actions?: ReactNode;
+  /** Called when a Claude Code permission menu appears on screen or goes away. */
+  onPermission?: (pending: PendingPermission | null) => void;
   /** Must be stable (memoized); a new function restarts the session. */
   spawn: Spawner;
 }) {
@@ -32,6 +42,11 @@ export function TerminalPane({
   const sessionId = useRef<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const [status, setStatus] = useState<Status>({ kind: "starting" });
+  // Latest callback without restarting the session when it changes.
+  const permissionRef = useRef(onPermission);
+  useEffect(() => {
+    permissionRef.current = onPermission;
+  }, [onPermission]);
 
   useEffect(() => {
     const el = host.current;
@@ -63,17 +78,46 @@ export function TerminalPane({
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(el);
 
+    // Screen scan for permission menus (works while hidden: the buffer still updates).
+    let shown: PermissionPrompt | null = null;
+    let scanTimer: ReturnType<typeof setTimeout> | undefined;
+    const scan = () => {
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let y = buf.viewportY; y < buf.viewportY + term.rows; y++) {
+        lines.push(buf.getLine(y)?.translateToString(true) ?? "");
+      }
+      const found = parsePermission(lines);
+      if (samePrompt(found, shown)) return;
+      shown = found;
+      permissionRef.current?.(
+        found && { prompt: found, answer: (key) => void writePty(id, key).catch(report) },
+      );
+    };
+    const scheduleScan = () => {
+      clearTimeout(scanTimer);
+      scanTimer = setTimeout(scan, 150);
+    };
+
     setStatus({ kind: "starting" });
     spawn(id, term.cols, term.rows, (msg) => {
       if (!alive) return;
-      if (msg.type === "output") term.write(new Uint8Array(msg.data));
-      else setStatus({ kind: "exited", code: msg.code });
+      if (msg.type === "output") term.write(new Uint8Array(msg.data), scheduleScan);
+      else {
+        setStatus({ kind: "exited", code: msg.code });
+        if (shown) {
+          shown = null;
+          permissionRef.current?.(null);
+        }
+      }
     })
       .then(() => alive && setStatus({ kind: "running" }))
       .catch((e: unknown) => alive && setStatus({ kind: "error", message: String(e) }));
 
     return () => {
       alive = false;
+      clearTimeout(scanTimer);
+      if (shown) permissionRef.current?.(null);
       observer.disconnect();
       input.dispose();
       resize.dispose();
