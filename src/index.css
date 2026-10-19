@@ -27,40 +27,56 @@
 
 :root {
   color-scheme: light;
-  --ina-window: #f5f5f7;
-  --ina-surface: #ffffff;
-  --ina-sidebar: rgb(236 236 240 / 0.78);
-  --ina-separator: rgb(0 0 0 / 0.09);
-  --ina-hover: rgb(0 0 0 / 0.05);
-  --ina-label: #1d1d1f;
-  --ina-label-2: #424245;
-  --ina-label-3: #86868b;
-  --ina-accent: #007aff;
-  --ina-red: #e5352b;
+  --ina-window: #e6f6ff;
+  --ina-surface: rgb(255 255 255 / 0.62);
+  --ina-sidebar: rgb(255 255 255 / 0.42);
+  --ina-separator: rgb(255 255 255 / 0.85);
+  --ina-hover: rgb(255 255 255 / 0.55);
+  --ina-label: #0b2a44;
+  --ina-label-2: #23506f;
+  --ina-label-3: #5a809a;
+  --ina-accent: #0a8fe0;
+  --ina-red: #d8342a;
   --ina-orange: #c46a00;
-  --ina-blue: #007aff;
-  --ina-green: #1f9d4c;
+  --ina-blue: #0a8fe0;
+  --ina-green: #2a9d3a;
   --ina-term-bg: #ffffff;
-  --ina-term-fg: #1d1d1f;
+  --ina-term-fg: #0b2a44;
+  --ina-sky:
+    radial-gradient(120% 60% at 15% 115%, #8fdc4a 0 38%, transparent 39%),
+    radial-gradient(130% 55% at 85% 120%, #5cc232 0 40%, transparent 41%),
+    radial-gradient(60% 40% at 80% 8%, rgb(255 255 255 / 0.9), transparent 70%),
+    linear-gradient(180deg, #3fb4f2 0%, #8fd6fb 45%, #dff4ff 75%);
+  --ina-glass-edge: rgb(255 255 255 / 0.9);
+  --ina-glass-shadow: rgb(6 70 120 / 0.18);
+  --ina-gloss: linear-gradient(180deg, rgb(255 255 255 / 0.75), rgb(255 255 255 / 0) 55%);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ina-window: #1c1c1e;
-  --ina-surface: #242426;
-  --ina-sidebar: rgb(44 44 48 / 0.72);
-  --ina-separator: rgb(255 255 255 / 0.1);
-  --ina-hover: rgb(255 255 255 / 0.07);
-  --ina-label: #f5f5f7;
-  --ina-label-2: #d1d1d6;
-  --ina-label-3: #98989d;
-  --ina-accent: #0a84ff;
-  --ina-red: #ff453a;
-  --ina-orange: #ff9f0a;
-  --ina-blue: #0a84ff;
-  --ina-green: #30d158;
-  --ina-term-bg: #1c1c1e;
-  --ina-term-fg: #f5f5f7;
+  --ina-window: #04182b;
+  --ina-surface: rgb(16 48 78 / 0.58);
+  --ina-sidebar: rgb(10 36 62 / 0.5);
+  --ina-separator: rgb(140 220 255 / 0.22);
+  --ina-hover: rgb(140 220 255 / 0.12);
+  --ina-label: #eaf7ff;
+  --ina-label-2: #b9dcf0;
+  --ina-label-3: #7fa9c4;
+  --ina-accent: #2bb4ff;
+  --ina-red: #ff5a4e;
+  --ina-orange: #ffae3a;
+  --ina-blue: #2bb4ff;
+  --ina-green: #5be06a;
+  --ina-term-bg: #061a2c;
+  --ina-term-fg: #eaf7ff;
+  --ina-sky:
+    radial-gradient(70% 45% at 20% 0%, rgb(60 230 200 / 0.35), transparent 70%),
+    radial-gradient(60% 40% at 85% 10%, rgb(40 140 255 / 0.4), transparent 70%),
+    radial-gradient(130% 50% at 50% 125%, #0b5e3a 0 40%, transparent 41%),
+    linear-gradient(180deg, #021022 0%, #06284a 60%, #0a3a5c 100%);
+  --ina-glass-edge: rgb(160 230 255 / 0.28);
+  --ina-glass-shadow: rgb(0 0 0 / 0.45);
+  --ina-gloss: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0) 55%);
 }
 
 html,
@@ -68,15 +84,19 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  background: var(--ina-window);
   color: var(--ina-label);
   font-family: var(--font-sans);
   font-size: 13px;
+  font-family:
+    "Segoe UI Variable Text", "Segoe UI", "Frutiger", "Myriad Pro", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.01em;
 }
 
 body {
+  background:
+    var(--ina-sky) fixed,
+    var(--ina-window);
   transition:
     background-color 0.25s ease,
     color 0.25s ease;
@@ -103,4 +123,100 @@ body {
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* Frutiger Aero: floating bubbles over the sky. */
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+        circle at 30% 30%,
+        rgb(255 255 255 / 0.9),
+        rgb(255 255 255 / 0.15) 40%,
+        transparent 62%
+      )
+      8% 70% / 90px 90px no-repeat,
+    radial-gradient(
+        circle at 30% 30%,
+        rgb(255 255 255 / 0.85),
+        rgb(255 255 255 / 0.12) 40%,
+        transparent 62%
+      )
+      92% 35% / 140px 140px no-repeat,
+    radial-gradient(
+        circle at 30% 30%,
+        rgb(255 255 255 / 0.8),
+        rgb(255 255 255 / 0.1) 40%,
+        transparent 62%
+      )
+      70% 85% / 60px 60px no-repeat,
+    radial-gradient(
+        circle at 30% 30%,
+        rgb(255 255 255 / 0.8),
+        rgb(255 255 255 / 0.1) 40%,
+        transparent 62%
+      )
+      45% 18% / 46px 46px no-repeat;
+  animation: aero-float 14s ease-in-out infinite alternate;
+}
+@keyframes aero-float {
+  to {
+    transform: translateY(-18px);
+  }
+}
+
+/* Glass surface with gloss highlight. */
+.aero-glass {
+  background: var(--ina-gloss), var(--ina-surface);
+  backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid var(--ina-glass-edge);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    0 8px 28px var(--ina-glass-shadow);
+}
+
+/* Aqua glossy pill button. */
+.aero-btn {
+  position: relative;
+  border-radius: 999px;
+  color: #fff;
+  text-shadow: 0 1px 1px rgb(0 40 90 / 0.45);
+  background: linear-gradient(180deg, #6fd3ff 0%, #1aa0ef 50%, #0a7fd0 51%, #2ab6ff 100%);
+  border: 1px solid #0a6fb8;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    inset 0 -2px 6px rgb(120 230 255 / 0.6),
+    0 2px 6px rgb(0 90 160 / 0.35);
+}
+.aero-btn::before {
+  content: "";
+  position: absolute;
+  inset: 1px 6px 50% 6px;
+  border-radius: 999px 999px 40% 40%;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.85), rgb(255 255 255 / 0.1));
+  pointer-events: none;
+}
+.aero-btn:hover:not(:disabled) {
+  filter: brightness(1.08) saturate(1.1);
+}
+
+/* Glass pill for secondary actions. */
+.aero-pill {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.95), rgb(225 242 252 / 0.75));
+  border: 1px solid rgb(120 180 215 / 0.55);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 1px 3px rgb(0 70 120 / 0.15);
+}
+:root[data-theme="dark"] .aero-pill {
+  background: linear-gradient(180deg, rgb(80 150 200 / 0.45), rgb(20 60 100 / 0.45));
+  border-color: rgb(140 220 255 / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 1px 3px rgb(0 0 0 / 0.3);
 }

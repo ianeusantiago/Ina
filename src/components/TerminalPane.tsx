@@ -96,7 +96,7 @@ export function TerminalPane({
           : "…";
 
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-mac bg-panel shadow-card">
+    <section className="flex h-full min-h-0 flex-col aero-glass rounded-2xl ">
       <header className="flex items-center gap-3 border-b border-line px-4 py-2 text-xs">
         <span className="font-semibold text-fg">{title}</span>
         {subtitle && <span className="truncate text-muted">{subtitle}</span>}

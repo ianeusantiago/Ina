@@ -85,7 +85,7 @@ function Splitter({
 }
 
 const button =
-  "rounded-md bg-panel px-3 py-1 text-xs font-medium shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_1px_rgb(0_0_0/0.05)] transition hover:bg-hover active:scale-[0.98] disabled:opacity-40 disabled:hover:bg-panel";
+  "aero-pill px-3 py-1 text-xs font-medium transition hover:bg-hover active:scale-[0.98] disabled:opacity-40 disabled:hover:bg-panel";
 
 function AgentTerminal({
   planId,
@@ -122,7 +122,7 @@ function AgentTerminal({
   );
   if (!open) {
     return (
-      <section className="flex h-full min-h-0 flex-col items-start gap-2 rounded-mac bg-panel p-4 shadow-card text-xs">
+      <section className="flex h-full min-h-0 flex-col items-start gap-2 aero-glass rounded-2xl p-4  text-xs">
         <span className="font-medium">{title}</span>
         <span className="text-muted">{subtitle}</span>
         {status === "blocked" ? (
@@ -302,7 +302,7 @@ export function TeamPanel({
 
   return (
     <div className="flex h-full min-h-0 gap-2">
-      <section className="flex w-[28rem] shrink-0 flex-col gap-3 overflow-y-auto rounded-mac bg-panel p-4 shadow-card text-sm">
+      <section className="flex w-[28rem] shrink-0 flex-col gap-3 overflow-y-auto aero-glass rounded-2xl p-4  text-sm">
         <h2 className="text-[15px] font-semibold tracking-tight text-fg">{t("team.title")}</h2>
         {openTeams.length > 0 && (
           <div className="flex flex-col gap-1 text-xs">
@@ -310,7 +310,7 @@ export function TeamPanel({
             {openTeams.map((d) => (
               <div
                 key={d.id}
-                className="flex items-center gap-2 rounded-lg bg-ink/60 p-2.5 ring-1 ring-line"
+                className="flex items-center gap-2 rounded-lg bg-hover p-2.5 ring-1 ring-line"
               >
                 <span className="min-w-0 flex-1 truncate" title={d.plan.summary}>
                   {d.plan.summary}
@@ -363,7 +363,7 @@ export function TeamPanel({
         {untrusted && stage.kind === "review" && (
           <div
             role="alert"
-            className="flex flex-col gap-1 rounded-lg bg-ink/60 p-2.5 ring-1 ring-line text-xs"
+            className="flex flex-col gap-1 rounded-lg bg-hover p-2.5 ring-1 ring-line text-xs"
           >
             <p className="text-fg">{t("team.untrusted")}</p>
             <code className="text-muted">cd &quot;{workspacePath}&quot; ; claude</code>
@@ -381,7 +381,7 @@ export function TeamPanel({
             <p className="text-xs text-muted">{t(`team.mode.${stage.draft.plan.mode}`)}</p>
             <ol className="flex flex-col gap-2">
               {stage.draft.plan.agents.map((a) => (
-                <li key={a.id} className="rounded-lg bg-ink/60 p-2.5 ring-1 ring-line text-xs">
+                <li key={a.id} className="rounded-lg bg-hover p-2.5 ring-1 ring-line text-xs">
                   <div className="font-medium text-fg">
                     {a.name} <span className="text-muted">· {a.role}</span>
                   </div>

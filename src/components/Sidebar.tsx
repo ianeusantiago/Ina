@@ -25,7 +25,7 @@ export function Sidebar({ workspaces, selectedId, error, onSelect, onAdd, onRemo
   };
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-sidebar text-[13px] backdrop-blur-2xl">
+    <aside className="flex w-64 shrink-0 flex-col aero-glass m-2 mr-0 rounded-2xl bg-sidebar text-[13px]">
       <h2 className="px-5 pt-3 pb-1.5 text-[11px] font-semibold text-muted">
         {t("workspaces.title")}
       </h2>

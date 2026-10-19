@@ -55,7 +55,7 @@ export function SetupBanner() {
         ))}
       </ul>
       <button
-        className="self-start rounded-md bg-panel px-2 py-1 font-medium shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_1px_rgb(0_0_0/0.05)] transition hover:bg-hover active:scale-[0.98] disabled:opacity-40"
+        className="self-start aero-pill px-3 py-1 font-medium transition hover:bg-hover active:scale-[0.98] disabled:opacity-40"
         disabled={busy}
         onClick={() => void check()}
       >
