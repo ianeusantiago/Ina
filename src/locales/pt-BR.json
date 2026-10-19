@@ -270,7 +270,9 @@
     "working": "Trabalhando ({{done}}/{{total}})",
     "verified": "Tudo verificado",
     "merged": "Juntado no projeto",
-    "problem": "Algo precisa de você"
+    "problem": "Algo precisa de você",
+    "usage": "Uso: {{tokens}} tokens",
+    "usageDetail": "Entrada {{input}} · Saída {{output}} · Cache lido {{cacheRead}} · Cache gravado {{cacheWrite}} ({{sessions}} sessões)"
   },
   "notify": {
     "done": {

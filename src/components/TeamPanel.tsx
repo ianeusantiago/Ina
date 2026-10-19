@@ -316,7 +316,7 @@ function TeamRun({
   ];
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <TeamProgress tasks={tasks} agents={p.agents.length} merged={merged} />
+      <TeamProgress planId={id} tasks={tasks} agents={p.agents.length} merged={merged} />
       <ReadyBanner planId={id} tasks={tasks} onMerged={() => setMerged(true)} />
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">

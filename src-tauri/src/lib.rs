@@ -8,6 +8,7 @@ mod report;
 mod setup;
 mod store;
 mod tasks;
+mod teamusage;
 mod trust;
 mod usage;
 mod verify;
@@ -713,6 +714,39 @@ fn resumable_session(
         .find(|(a, _)| a == agent_id)
         .map(|(_, sid)| sid)
         .filter(|sid| activity::find_log(plan::AgentCli::Claude, &cwd, Some(sid)).is_some()))
+}
+
+/// Tokens used by a team's Claude sessions (latest session of each member), from their logs.
+#[tauri::command]
+async fn team_usage(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<teamusage::TeamUsage, String> {
+    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    let root = workspace_root(&store, team.workspace_id)?;
+    let sessions = store
+        .agent_sessions_of(to_db_id(plan_id)?)
+        .map_err(|e| e.to_string())?;
+    let logs: Vec<PathBuf> = sessions
+        .iter()
+        .filter_map(|(agent, sid)| {
+            let cwd = if agent == plan::ORCHESTRATOR_ID {
+                root.clone()
+            } else {
+                team.worktrees.get(agent)?.path.clone()
+            };
+            activity::find_log(plan::AgentCli::Claude, &cwd, Some(sid))
+        })
+        .collect();
+    blocking(move || {
+        let mut usage = teamusage::TeamUsage::default();
+        for log in &logs {
+            usage.add_log(log).map_err(|e| e.to_string())?;
+        }
+        Ok(usage)
+    })
+    .await
 }
 
 /// Members of a team whose last conversation can be continued.
@@ -1923,6 +1957,7 @@ pub fn run() {
             team_report,
             preview_page,
             team_resumable,
+            team_usage,
             team_list,
             team_tasks,
             claude_setup,
