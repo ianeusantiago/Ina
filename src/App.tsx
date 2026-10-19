@@ -32,7 +32,7 @@ export default function App() {
   const selected = workspaces.find((w) => w.id === selectedId) ?? null;
 
   return (
-    <main className="flex h-full flex-col overflow-hidden bg-ink">
+    <main className="flex h-full flex-col overflow-hidden">
       <TitleBar
         language={i18n.language}
         onLanguage={(l) => setLanguage(l)}

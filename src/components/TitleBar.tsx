@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LANGUAGES } from "../i18n";
 import { usePersistedState } from "../lib/usePersistedState";
 import { applyTheme, parseTheme, THEME_KEY, THEMES } from "../lib/theme";
+import inaIcon from "../assets/ina-icon.svg";
 
 interface Props {
   language: string;
@@ -25,8 +26,9 @@ export function TitleBar({ language, languageLabel, onLanguage }: Props) {
   }, [theme]);
 
   return (
-    <header className="relative flex h-12 shrink-0 select-none items-center gap-4 border-b border-line bg-sidebar px-4 backdrop-blur-2xl">
-      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-[13px] font-semibold text-fg">
+    <header className="relative flex h-12 shrink-0 select-none items-center gap-4 aero-glass m-2 mb-0 rounded-2xl px-4">
+      <span className="flex items-center gap-2 text-[14px] font-semibold text-fg">
+        <img src={inaIcon} alt="" className="size-6 drop-shadow" />
         {t("app.name")}
       </span>
 

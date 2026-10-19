@@ -1,11 +1,11 @@
-/** Shared control styles (macOS look; colors come from the theme tokens in index.css). */
+/** Shared control styles (macOS + Frutiger Aero look; colors come from the theme tokens in index.css). */
 export const smallButton =
-  "rounded-md bg-panel px-2.5 py-1 font-medium text-fg shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_1px_rgb(0_0_0/0.05)] transition hover:bg-hover active:scale-[0.98] disabled:opacity-40 disabled:hover:bg-panel";
+  "aero-pill px-3 py-1 font-medium text-fg transition hover:brightness-105 active:scale-[0.98] disabled:opacity-40";
 export const primaryButton =
-  "rounded-md bg-accent px-3 py-1 font-medium text-white shadow-sm transition hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:hover:brightness-100";
+  "aero-btn px-4 py-1 font-semibold transition active:scale-[0.98] disabled:opacity-40";
 export const ghostButton =
   "rounded-md px-2 py-1 text-fg-2 transition hover:bg-hover hover:text-fg disabled:opacity-40";
-export const panel = "flex flex-col gap-1.5 rounded-mac bg-panel px-4 py-3 text-xs shadow-card";
+export const panel = "aero-glass flex flex-col gap-1.5 rounded-2xl px-4 py-3 text-xs";
 export const panelTitle = "text-[11px] font-semibold text-muted";
 export const errorText = "break-words text-danger";
 export const field =
