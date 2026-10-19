@@ -1,4 +1,5 @@
 mod activity;
+mod home;
 mod messages;
 mod plan;
 mod policy;
@@ -211,6 +212,86 @@ fn folder_trusted(root: &std::path::Path) -> Result<bool, String> {
 fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool, String> {
     let root = workspace_root(&store, workspace_id)?;
     folder_trusted(&root)
+}
+
+fn home_dir() -> Result<PathBuf, String> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .ok_or_else(|| "no home directory".into())
+}
+
+/// The folder new workspaces go in, created on demand.
+fn home_base() -> Result<PathBuf, String> {
+    let base = home::base(&home_dir()?);
+    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    Ok(policy::simplify(
+        base.canonicalize().map_err(|e| e.to_string())?,
+    ))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HomeBase {
+    path: String,
+    trusted: bool,
+}
+
+#[tauri::command]
+fn home_info() -> Result<HomeBase, String> {
+    let base = home_base()?;
+    Ok(HomeBase {
+        trusted: folder_trusted(&base)?,
+        path: base.display().to_string(),
+    })
+}
+
+/// Reads what the user wants from the home screen (no tools: it can only answer).
+#[tauri::command]
+async fn home_intent(request: String) -> Result<home::Intent, String> {
+    let request = request.trim().to_string();
+    if request.is_empty() || request.len() > home::MAX_REQUEST_LEN {
+        return Err("request is empty or too long".into());
+    }
+    let base = home_base()?;
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let spec = policy::authorize(
+        Program::Claude,
+        home::intent_args(&request),
+        &base,
+        &base,
+        0,
+        &path_var,
+    )
+    .map_err(|e| e.to_string())?;
+    blocking(move || {
+        let mut child = pty::piped_command(&spec)
+            .spawn()
+            .map_err(|e| format!("spawn: {e}"))?;
+        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(180))
+            .map_err(|e| e.to_string())?;
+        status.ok_or("timed out")?;
+        home::parse_output(&String::from_utf8_lossy(&output.stdout))
+    })
+    .await
+}
+
+/// New workspace `<base>/<name>` as a git repo with one commit, added to INA.
+#[tauri::command]
+async fn workspace_create(store: State<'_, Store>, name: String) -> Result<Workspace, String> {
+    let base = home_base()?;
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
+    let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
+    let dir = blocking(move || {
+        let dir = home::create_dir(&base, &name)?;
+        worktree::Git::new(exe, dir.clone(), env_remove)
+            .init_repo()
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>(dir)
+    })
+    .await?;
+    store.add_workspace(&dir).map_err(|e| e.to_string())
 }
 
 /// Git runner for a workspace root (program resolved by the policy, Claude env stripped).
@@ -1636,6 +1717,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pty_spawn_shell,
             pty_spawn_agent,
+            home_info,
+            home_intent,
+            workspace_create,
             plan_generate,
             plan_draft,
             plan_approve,

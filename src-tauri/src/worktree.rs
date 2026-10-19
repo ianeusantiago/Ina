@@ -91,6 +91,22 @@ impl Git {
         Ok(())
     }
 
+    /// New repository with one empty commit, so worktrees can branch from it. Uses a local
+    /// "INA" identity only when git has no user configured.
+    pub fn init_repo(&self) -> Result<(), WorktreeError> {
+        self.run(&["init", "-b", "main"])?;
+        let has_identity = self
+            .run(&["config", "user.email"])
+            .is_ok_and(|e| !e.is_empty());
+        let mut args = vec![];
+        if !has_identity {
+            args.extend(["-c", "user.name=INA", "-c", "user.email=ina@localhost"]);
+        }
+        args.extend(["commit", "--allow-empty", "-m", "Início do projeto (INA)"]);
+        self.run(&args)?;
+        Ok(())
+    }
+
     /// Keep `.ina/` out of `git status` without touching the tracked `.gitignore`.
     fn exclude_ina_dir(&self) -> Result<(), WorktreeError> {
         let common = PathBuf::from(self.run(&["rev-parse", "--git-common-dir"])?);
