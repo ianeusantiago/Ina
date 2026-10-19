@@ -4,6 +4,7 @@ import { SetupBanner } from "./components/SetupBanner";
 import { Sidebar } from "./components/Sidebar";
 import { setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
+import inaIcon from "./assets/ina-icon.svg";
 import { TitleBar } from "./components/TitleBar";
 import { addWorkspace, listWorkspaces, removeWorkspace, type Workspace } from "./lib/workspaces";
 
@@ -69,9 +70,7 @@ export default function App() {
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-              <div className="flex size-16 items-center justify-center rounded-[18px] bg-gradient-to-b from-[#5ac8fa] to-accent text-2xl font-semibold text-white shadow-lg shadow-accent/25">
-                {t("app.name").slice(0, 1)}
-              </div>
+              <img src={inaIcon} alt="" className="size-20 drop-shadow-lg" />
               <p className="text-[22px] font-semibold tracking-tight text-fg">{t("app.name")}</p>
               <p className="max-w-xs text-[13px] text-muted">{t("workspaces.selectHint")}</p>
             </div>
