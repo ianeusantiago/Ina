@@ -1,12 +1,14 @@
 # INA — Estado
 
-**Fase atual:** 3 (arquitetura) concluída em 2026-10-18, branch `ianeusantiago/fase3-arquitetura` (PR #4), aguardando revisão/merge. Fase 2 integrada ao `main` (PR #3).
+**Fase atual:** 5 (pendências finais), branch `ianeusantiago/fase5-pendencias`. Fases 1–4 no `main` (PR #3, #4, #5).
 
-## Fase 4 — pendências (pausada; branch `worktree-fase4-pendencias`)
-- Feito (verificado: Rust 51 + clippy, tsc/eslint/prettier, Vitest 2): tarefa `running` sem sessão finalizada pelo tick (2 ticks seguidos); evento `team-changed` leva as tarefas (sem sync repetido); `prerequisites` vem do backend (cópia TS removida); `Registry::task` lê 1 linha; travas por worktree sem uso são descartadas.
-- Restauração de rascunho: plano não aprovado (< 30 min, mais novo que a última equipe aprovada) volta à revisão após reload (`plan_draft`). Rust 52.
-- E2E Playwright 5/5 (inclui fluxo real `ws-todo`) após as mudanças; code-review (medium) sem achados.
+## Fase 5 — pendências finais (branch `ianeusantiago/fase5-pendencias`)
+- Orquestrador: deny list cobre também a ferramenta PowerShell e mais formas de git (`-C`, `-c`, restore, stash, worktree, update-ref, branch -f/-D). Verificado com `claude -p` (PowerShell deny e `git -C` bloqueados; controle sem deny commitou). Rust 53, clippy, fmt.
+- E2E Playwright 5/5 em 3 execuções seguidas (fluxo real `ws-todo`): falha intermitente não reproduziu.
 - Próximo: PR.
+
+## Fase 4 — pendências (PR #5 merged, 85ca40e)
+- Tick finaliza tarefas órfãs; evento leva tarefas; `prerequisites` do backend; restauração de rascunho. E2E 5/5, code-review sem achados.
 
 ## Fase 3 — feito (verificado)
 - Tick no backend (5 s) avança equipes sem UI (provado: mensagem no outbox ingerida com painel fechado); recuperação fora do startup.
@@ -24,8 +26,8 @@ Fechamento: code-review (6 corrigidos + outbox sem perda + limite em caracteres;
 Testes: Rust 50 (+6 ignorados reais), clippy -D warnings, tsc/eslint/prettier, Vitest 4, Playwright 5 (inclui fluxo real de equipe com `INA_E2E_WORKSPACE=ws-todo`).
 
 ## Pendências conhecidas
-- Orquestrador: deny list é guarda, não sandbox (SECURITY.md).
-- E2E do fluxo real falhou 1x (plano gravado no banco, UI não recebeu resposta; não reproduziu em 3 execuções seguintes). Backend grava e retorna em sequência; hipótese: WebView recarregou (recompilação do `tauri dev`) durante o planejamento ou planner > 5 min. Mitigado na Fase 4 (restauração de rascunho); confirmar no E2E.
+- Orquestrador: deny list é guarda, não sandbox (aliases/scripts ainda contornam; SECURITY.md).
+- E2E do fluxo real falhou 1x na Fase 2; após a restauração de rascunho (Fase 4) não reproduziu em 4 execuções completas. Considerado mitigado; reabrir se voltar.
 
 ## Bloqueios
 - RAM 7,3 GB: Claude Code mata `tauri dev` em background; fechar apps pesados ao testar.

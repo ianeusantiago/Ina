@@ -350,14 +350,28 @@ const ORCHESTRATOR_DENIED: &[&str] = &[
     "Edit(.ina/worktrees/**)",
     "Edit(.git/**)",
     "Edit(.ina/events.jsonl)",
-    "Bash(git merge:*)",
-    "Bash(git rebase:*)",
-    "Bash(git reset:*)",
-    "Bash(git commit:*)",
-    "Bash(git push:*)",
-    "Bash(git cherry-pick:*)",
-    "Bash(git checkout:*)",
-    "Bash(git switch:*)",
+];
+
+/// Git commands the orchestrator may not run. Denied for both shell tools: on Windows
+/// Claude Code also has a PowerShell tool (verified with `claude -p` that its rules apply).
+const ORCHESTRATOR_DENIED_GIT: &[&str] = &[
+    "merge",
+    "rebase",
+    "reset",
+    "commit",
+    "push",
+    "cherry-pick",
+    "checkout",
+    "switch",
+    "restore",
+    "stash",
+    "worktree",
+    "update-ref",
+    "branch -f",
+    "branch -D",
+    // Global options put the subcommand out of reach of the prefix rules above.
+    "-C",
+    "-c",
 ];
 
 /// Prompt first: `--disallowedTools` is variadic and would swallow a trailing prompt.
@@ -371,6 +385,13 @@ pub fn orchestrator_args(prompt: String) -> Vec<String> {
         "--disallowedTools".to_string(),
     ];
     args.extend(ORCHESTRATOR_DENIED.iter().map(|s| s.to_string()));
+    for tool in ["Bash", "PowerShell"] {
+        args.extend(
+            ORCHESTRATOR_DENIED_GIT
+                .iter()
+                .map(|cmd| format!("{tool}(git {cmd}:*)")),
+        );
+    }
     args
 }
 
@@ -646,6 +667,20 @@ impl PlanStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orchestrator_denies_git_writes_in_both_shells() {
+        let args = orchestrator_args("p".into());
+        for rule in [
+            "Bash(git commit:*)",
+            "PowerShell(git commit:*)",
+            "PowerShell(git -C:*)",
+            "Bash(git worktree:*)",
+        ] {
+            assert!(args.iter().any(|a| a == rule), "missing {rule}");
+        }
+        assert_eq!(args[0], "p");
+    }
 
     fn agent(id: &str, deps: &[&str]) -> AgentSpec {
         AgentSpec {
