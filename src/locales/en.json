@@ -341,5 +341,12 @@
     "ok": "The reviewer found no problems.",
     "issues": "The reviewer found things to look at before merging.",
     "truncated": "The changes were large; the reviewer read only part of each agent's work."
+  },
+  "update": {
+    "available": "New version {{version}} available",
+    "hint": "Installs in seconds and reopens INA.",
+    "install": "Update and restart",
+    "later": "Later",
+    "downloading": "Downloading… {{pct}}%"
   }
 }

@@ -5,6 +5,7 @@ import { Sidebar, type Focus } from "./components/Sidebar";
 import { setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
 import { Home } from "./components/Home";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { useTeamNotifications } from "./lib/notify";
 import type { PlanDraft } from "./lib/team";
 import { TitleBar } from "./components/TitleBar";
@@ -46,6 +47,7 @@ export default function App() {
         languageLabel={t("app.language")}
       />
       <SetupBanner />
+      <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar
           workspaces={workspaces}
