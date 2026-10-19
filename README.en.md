@@ -42,6 +42,10 @@ INA is a Windows desktop app that assembles and coordinates a **team of AI agent
 
 Security model and known limits: [SECURITY.md](SECURITY.md) (in Portuguese).
 
+## About the look: Frutiger Aero
+
+INA is designed in the **Frutiger Aero** style — the aesthetic of mid-2000s to early-2010s tech (think Windows Vista and 7, Mac OS X Aqua): glossy translucent glass, blue skies, water and bubbles, green hills, light reflections and a hopeful take on technology. In INA it shows in the day/night sky background, glass panels, glossy Aqua buttons and the glass icon. More: [Frutiger Aero on Wikipedia](https://en.wikipedia.org/wiki/Frutiger_Aero).
+
 ## Development
 
 Extra requirements: Rust (stable, MSVC), Visual Studio Build Tools 2022, Node.js 22+.

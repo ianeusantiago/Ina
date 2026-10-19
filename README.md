@@ -19,6 +19,7 @@
   <a href="#baixar">Baixar</a> ·
   <a href="#como-funciona">Como funciona</a> ·
   <a href="#recursos">Recursos</a> ·
+  <a href="#sobre-o-visual-frutiger-aero">Visual</a> ·
   <a href="#segurança">Segurança</a> ·
   <a href="#desenvolvimento">Desenvolvimento</a> ·
   <a href="README.en.md">English</a>
@@ -74,6 +75,12 @@ O INA é um app desktop para Windows que monta e coordena uma **equipe de agente
 
 - Estilo **Frutiger Aero**: vidro, céu, bolhas e brilho — tema claro (padrão), escuro ou do sistema.
 - Interface em **português** e **inglês**.
+
+## Sobre o visual: Frutiger Aero
+
+O INA foi desenhado no estilo **Frutiger Aero**, a estética que marcou a tecnologia entre meados dos anos 2000 e o começo dos 2010 — pense no Windows Vista e no 7, no Aqua do Mac OS X e nas propagandas de celular da época. Ela mistura **vidro brilhante e translúcido**, **céu azul, água e bolhas**, **colinas verdes**, reflexos de luz e muito otimismo com a tecnologia.
+
+Aqui isso aparece no fundo com céu e aurora (dia e noite), nos painéis de vidro, nos botões Aqua com brilho e no ícone em vidro. A ideia é que um app de IA possa ser acolhedor e bonito, não só um terminal preto. Para saber mais, veja o verbete [Frutiger Aero](https://en.wikipedia.org/wiki/Frutiger_Aero) na Wikipédia.
 
 ## Segurança
 
