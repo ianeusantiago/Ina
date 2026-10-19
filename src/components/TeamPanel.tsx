@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ghostButton, field } from "./ui";
+import { ghostButton, field, primaryButton } from "./ui";
 import { usePersistedState } from "../lib/usePersistedState";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
@@ -74,7 +74,7 @@ function Splitter({
       aria-valuemin={SPLIT_MIN}
       aria-valuemax={SPLIT_MAX}
       tabIndex={0}
-      className="h-1.5 shrink-0 cursor-row-resize rounded bg-line/50 hover:bg-zinc-600 focus:bg-zinc-600 focus:outline-none"
+      className="h-1.5 shrink-0 cursor-row-resize rounded bg-line/50 hover:bg-accent/60 focus:bg-accent/60 focus:outline-none"
       onPointerDown={drag}
       onKeyDown={(e) => {
         if (e.key === "ArrowUp") set(value - 5);
@@ -85,7 +85,7 @@ function Splitter({
 }
 
 const button =
-  "rounded border border-line px-3 py-1 text-xs hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
+  "rounded-md bg-panel px-3 py-1 text-xs font-medium shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_1px_rgb(0_0_0/0.05)] transition hover:bg-hover active:scale-[0.98] disabled:opacity-40 disabled:hover:bg-panel";
 
 function AgentTerminal({
   planId,
@@ -122,14 +122,14 @@ function AgentTerminal({
   );
   if (!open) {
     return (
-      <section className="flex h-full min-h-0 flex-col items-start gap-2 rounded border border-line bg-panel p-3 text-xs">
+      <section className="flex h-full min-h-0 flex-col items-start gap-2 rounded-mac bg-panel p-4 shadow-card text-xs">
         <span className="font-medium">{title}</span>
         <span className="text-muted">{subtitle}</span>
         {status === "blocked" ? (
-          <span className="text-amber-300">{t("team.blocked")}</span>
+          <span className="text-warning">{t("team.blocked")}</span>
         ) : (
           waitingFor.length > 0 && (
-            <span className="text-amber-300">
+            <span className="text-warning">
               {t("team.waitingFor", { agents: waitingFor.join(", ") })}
             </span>
           )
@@ -302,15 +302,16 @@ export function TeamPanel({
 
   return (
     <div className="flex h-full min-h-0 gap-2">
-      <section className="flex w-[28rem] shrink-0 flex-col gap-3 overflow-y-auto rounded border border-line bg-panel p-3 text-sm">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
-          {t("team.title")}
-        </h2>
+      <section className="flex w-[28rem] shrink-0 flex-col gap-3 overflow-y-auto rounded-mac bg-panel p-4 shadow-card text-sm">
+        <h2 className="text-[15px] font-semibold tracking-tight text-fg">{t("team.title")}</h2>
         {openTeams.length > 0 && (
           <div className="flex flex-col gap-1 text-xs">
             <span className="text-muted">{t("team.openTeams")}</span>
             {openTeams.map((d) => (
-              <div key={d.id} className="flex items-center gap-2 rounded border border-line p-2">
+              <div
+                key={d.id}
+                className="flex items-center gap-2 rounded-lg bg-ink/60 p-2.5 ring-1 ring-line"
+              >
                 <span className="min-w-0 flex-1 truncate" title={d.plan.summary}>
                   {d.plan.summary}
                 </span>
@@ -339,14 +340,17 @@ export function TeamPanel({
         </label>
         <div className="flex gap-2">
           <button
-            className={button}
+            className={`text-xs ${primaryButton}`}
             disabled={!request.trim() || stage.kind === "planning"}
             onClick={() => void plan()}
           >
             {stage.kind === "planning" ? t("team.planning") : t("team.generate")}
           </button>
           {stage.kind === "review" && (
-            <button className={button} onClick={() => void approve(stage.draft)}>
+            <button
+              className={`text-xs ${primaryButton}`}
+              onClick={() => void approve(stage.draft)}
+            >
               {untrusted
                 ? t("team.recheck")
                 : t("team.approve", { count: stage.draft.plan.agents.length + 1 })}
@@ -357,14 +361,17 @@ export function TeamPanel({
           <p className="text-xs text-muted">{t("team.verifyNote")}</p>
         )}
         {untrusted && stage.kind === "review" && (
-          <div role="alert" className="flex flex-col gap-1 rounded border border-line p-2 text-xs">
-            <p className="text-zinc-100">{t("team.untrusted")}</p>
+          <div
+            role="alert"
+            className="flex flex-col gap-1 rounded-lg bg-ink/60 p-2.5 ring-1 ring-line text-xs"
+          >
+            <p className="text-fg">{t("team.untrusted")}</p>
             <code className="text-muted">cd &quot;{workspacePath}&quot; ; claude</code>
             <p className="text-muted">{t("team.untrustedHint")}</p>
           </div>
         )}
         {error && (
-          <p role="alert" className="break-words text-xs text-red-400">
+          <p role="alert" className="break-words text-xs text-danger">
             {error}
           </p>
         )}
@@ -374,8 +381,8 @@ export function TeamPanel({
             <p className="text-xs text-muted">{t(`team.mode.${stage.draft.plan.mode}`)}</p>
             <ol className="flex flex-col gap-2">
               {stage.draft.plan.agents.map((a) => (
-                <li key={a.id} className="rounded border border-line p-2 text-xs">
-                  <div className="font-medium text-zinc-100">
+                <li key={a.id} className="rounded-lg bg-ink/60 p-2.5 ring-1 ring-line text-xs">
+                  <div className="font-medium text-fg">
                     {a.name} <span className="text-muted">· {a.role}</span>
                   </div>
                   <div className="mt-1">{a.task}</div>
@@ -395,13 +402,10 @@ export function TeamPanel({
                   <div className="mt-1 text-xs">
                     <span className="text-muted">{t("team.verify")}: </span>
                     {a.verify.length === 0 ? (
-                      <span className="text-amber-300">{t("team.noVerify")}</span>
+                      <span className="text-warning">{t("team.noVerify")}</span>
                     ) : (
                       a.verify.map((c) => (
-                        <code
-                          key={checkText(c)}
-                          className="mr-2 rounded bg-line px-1 text-zinc-100"
-                        >
+                        <code key={checkText(c)} className="mr-2 rounded bg-line px-1 text-fg">
                           {checkText(c)}
                         </code>
                       ))

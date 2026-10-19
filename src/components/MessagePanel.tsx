@@ -62,11 +62,11 @@ export function MessagePanel({ planId, agents }: { planId: number; agents: Agent
       <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
         {messages.slice(-SHOWN).map((m) => (
           <li key={m.id} className={m.status === "rejected" ? "text-muted" : undefined}>
-            <span className="text-zinc-100">{name(m.from)}</span>
+            <span className="text-fg">{name(m.from)}</span>
             {m.to && <span className="text-muted"> → {name(m.to)}</span>}{" "}
-            <span className="text-sky-300">{t(`messages.kind.${m.kind}`, m.kind)}</span>{" "}
+            <span className="text-info">{t(`messages.kind.${m.kind}`, m.kind)}</span>{" "}
             <span className="text-muted">({t(`messages.status.${m.status}`, m.status)})</span>{" "}
-            <span className="whitespace-pre-wrap break-words text-zinc-300">{m.text}</span>
+            <span className="whitespace-pre-wrap break-words text-fg-2">{m.text}</span>
             {m.status === "proposed" && (
               <span className="ml-2 inline-flex gap-1">
                 <button
@@ -108,7 +108,7 @@ export function MessagePanel({ planId, agents }: { planId: number; agents: Agent
       >
         <select
           aria-label={t("messages.to")}
-          className="rounded border border-line bg-panel px-1 py-0.5 text-zinc-100"
+          className="rounded-md bg-panel px-1.5 py-0.5 text-fg shadow-[0_0_0_0.5px_var(--ina-separator)]"
           value={to}
           onChange={(e) => setTo(e.target.value)}
         >

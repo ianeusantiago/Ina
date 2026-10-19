@@ -1,10 +1,12 @@
-/** Shared control styles. */
+/** Shared control styles (macOS look; colors come from the theme tokens in index.css). */
 export const smallButton =
-  "rounded border border-line px-2 py-0.5 hover:bg-line disabled:opacity-40 disabled:hover:bg-transparent";
+  "rounded-md bg-panel px-2.5 py-1 font-medium text-fg shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_1px_rgb(0_0_0/0.05)] transition hover:bg-hover active:scale-[0.98] disabled:opacity-40 disabled:hover:bg-panel";
+export const primaryButton =
+  "rounded-md bg-accent px-3 py-1 font-medium text-white shadow-sm transition hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:hover:brightness-100";
 export const ghostButton =
-  "rounded px-2 py-0.5 text-muted hover:bg-line hover:text-zinc-100 disabled:opacity-40";
-export const panel = "flex flex-col gap-1 rounded border border-line bg-panel px-3 py-2 text-xs";
-export const panelTitle = "font-semibold uppercase tracking-wide text-muted";
-export const errorText = "break-words text-red-400";
+  "rounded-md px-2 py-1 text-fg-2 transition hover:bg-hover hover:text-fg disabled:opacity-40";
+export const panel = "flex flex-col gap-1.5 rounded-mac bg-panel px-4 py-3 text-xs shadow-card";
+export const panelTitle = "text-[11px] font-semibold text-muted";
+export const errorText = "break-words text-danger";
 export const field =
-  "rounded border border-line bg-transparent text-zinc-100 outline-none focus:border-zinc-500";
+  "rounded-md bg-panel text-fg shadow-[0_0_0_0.5px_var(--ina-separator)] outline-none transition focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--ina-accent)_35%,transparent)]";
