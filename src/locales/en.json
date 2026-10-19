@@ -264,5 +264,13 @@
     "confirmAll_other": "Archive {{count}} finished teams? They leave the list; their work stays in git.",
     "yes": "Archive",
     "no": "Cancel"
+  },
+  "progress": {
+    "label": "Team progress",
+    "assembled": "Team assembled",
+    "working": "Working ({{done}}/{{total}})",
+    "verified": "All verified",
+    "merged": "Merged into project",
+    "problem": "Something needs you"
   }
 }

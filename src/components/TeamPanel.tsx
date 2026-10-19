@@ -20,6 +20,7 @@ import {
 import { IntegrationBar } from "./IntegrationBar";
 import { InterfaceView, type Member } from "./InterfaceView";
 import { ReadyBanner } from "./ReadyBanner";
+import { TeamProgress } from "./TeamProgress";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { TerminalPane, type PendingPermission } from "./TerminalPane";
@@ -195,6 +196,11 @@ function TeamRun({
   const cell = (agentId: string) => (maxId !== null && maxId !== agentId ? "hidden" : "min-h-0");
   const toggle = (agentId: string) => () => setMaxId((cur) => (cur === agentId ? null : agentId));
   const [mode, changeMode] = usePersistedState(VIEW_KEY, parseView);
+  const [merged, setMerged] = usePersistedState(
+    `ina.merged.${id}`,
+    (v) => v === "1",
+    (v) => (v ? "1" : ""),
+  );
   const [permissions, setPermissions] = useState<Record<string, PendingPermission>>({});
   const onPermission = useCallback((agentId: string, pending: PendingPermission | null) => {
     setPermissions((all) => {
@@ -273,7 +279,8 @@ function TeamRun({
   ];
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <ReadyBanner planId={id} tasks={tasks} />
+      <TeamProgress tasks={tasks} agents={p.agents.length} merged={merged} />
+      <ReadyBanner planId={id} tasks={tasks} onMerged={() => setMerged(true)} />
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <IntegrationBar planId={id} />

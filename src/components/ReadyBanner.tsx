@@ -21,7 +21,16 @@ type Step =
  * Guided finish: once every agent is done, offer to look at what will change and merge it all
  * into the project in one click, then tidy up. Each step still needs the user's click.
  */
-export function ReadyBanner({ planId, tasks }: { planId: number; tasks: TaskView[] }) {
+export function ReadyBanner({
+  planId,
+  tasks,
+  onMerged,
+}: {
+  planId: number;
+  tasks: TaskView[];
+  /** Everything merged without problems. */
+  onMerged: () => void;
+}) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>({ kind: "ask" });
   const [busy, setBusy] = useState(false);
@@ -116,6 +125,7 @@ export function ReadyBanner({ planId, tasks }: { planId: number; tasks: TaskView
                         : [],
                   );
                   setStep({ kind: "merged", problems });
+                  if (problems.length === 0) onMerged();
                 })
               }
             >
