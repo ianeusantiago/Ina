@@ -32,7 +32,8 @@
     "selectHint": "Select or add a workspace to open a terminal.",
     "expand": "Show teams of {{name}}",
     "collapse": "Hide teams of {{name}}",
-    "noTeams": "No teams yet"
+    "noTeams": "No teams yet",
+    "filter": "Filter workspaces and teams"
   },
   "team": {
     "title": "Team",
@@ -251,5 +252,15 @@
     "cleanup": "Clean up temporary workspaces",
     "cleaned": "All done and tidy.",
     "close": "Close"
+  },
+  "archive": {
+    "one": "Archive {{name}}",
+    "all_one": "Archive the finished team",
+    "all_other": "Archive {{count}} finished teams",
+    "confirmOne": "Archive this team? It leaves the list; its work stays in git.",
+    "confirmAll_one": "Archive the finished team? It leaves the list; its work stays in git.",
+    "confirmAll_other": "Archive {{count}} finished teams? They leave the list; their work stays in git.",
+    "yes": "Archive",
+    "no": "Cancel"
   }
 }

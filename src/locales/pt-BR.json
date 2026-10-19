@@ -32,7 +32,8 @@
     "selectHint": "Selecione ou adicione um workspace para abrir um terminal.",
     "expand": "Mostrar equipes de {{name}}",
     "collapse": "Ocultar equipes de {{name}}",
-    "noTeams": "Nenhuma equipe ainda"
+    "noTeams": "Nenhuma equipe ainda",
+    "filter": "Filtrar workspaces e equipes"
   },
   "team": {
     "title": "Equipe",
@@ -251,5 +252,15 @@
     "cleanup": "Limpar espaços temporários",
     "cleaned": "Tudo pronto e organizado.",
     "close": "Fechar"
+  },
+  "archive": {
+    "one": "Arquivar {{name}}",
+    "all_one": "Arquivar a equipe concluída",
+    "all_other": "Arquivar {{count}} equipes concluídas",
+    "confirmOne": "Arquivar esta equipe? Ela some da lista; o trabalho fica guardado no git.",
+    "confirmAll_one": "Arquivar a equipe concluída? Ela some da lista; o trabalho fica guardado no git.",
+    "confirmAll_other": "Arquivar {{count}} equipes concluídas? Elas somem da lista; o trabalho fica guardado no git.",
+    "yes": "Arquivar",
+    "no": "Cancelar"
   }
 }
