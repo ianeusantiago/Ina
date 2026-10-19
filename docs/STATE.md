@@ -9,6 +9,14 @@
 4. Dizer o que ainda está errado na UX; se ok, pedir commit + merge.
 5. Opcional: testar um agente Codex (nunca rodado de verdade).
 
+## Fase 8 — Home + linguagem simples (2026-10-19, branch `ianeusantiago/interface`)
+- Botão Início na sidebar; Home conversa com o Claude (`home_intent`, sem ferramentas, JSON schema): cria workspace em `%USERPROFILE%\INA Projects\<nome>` (repo git + commit inicial, `workspace_create`), monta a equipe e mostra "Aprovar e começar" (aprovação explícita mantida).
+- Pasta-base precisa ser confiada 1x no Claude Code (confiança herdada pelos workspaces novos); a Home mostra o comando.
+- Prompts pedem respostas de chat em linguagem simples (`PLAIN_LANGUAGE`); Interface esconde código e nomes de arquivo nos status.
+- Bug corrigido: orquestrador não abria desde a Fase 5 ("too many arguments (47)"); `MAX_ARGS` 96 + teste; E2E agora falha se alguma sessão não abrir.
+- Verificado: Rust 71, clippy, tsc/eslint/prettier, Vitest 5, Playwright 5/5; Home testada até a etapa de confiança (workspace `ina-home-teste` criado).
+- Falta: usuário confiar a pasta e testar "Aprovar e começar" pela Home.
+
 ## Fase 7 — em andamento (não commitado em main; WIP na branch)
 - Interface (padrão) ↔ Terminais (botão ao lado da barra de integração); ambos ficam montados.
 - `activity.rs`: lê o log do próprio CLI (Claude `~/.claude/projects/<cwd>/<session>.jsonl`; Codex `~/.codex/sessions/**/rollout-*.jsonl` por cwd). Sessões Claude do INA recebem `--session-id` fixo (`PlanStore::set_log/log`) — corrige o bug de ler o log errado.

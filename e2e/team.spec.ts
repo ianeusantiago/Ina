@@ -25,8 +25,11 @@ test("plan, approve, verify and preview integration", async ({ app }) => {
   await approve.click();
   await app.getByRole("radio", { name: "Terminals" }).click();
 
-  const tasks = app.locator("section", { hasText: "Tasks" }).first();
+  // Exact heading: "Tasks" alone would also match the Interface ("Task" + "Single…").
+  const tasks = app.locator("section", { has: app.getByText("Tasks", { exact: true }) }).first();
   await expect(tasks).toContainText("verified: 1 check(s) passed", { timeout: 8 * 60_000 });
+  // Every session (orchestrator included) started.
+  await expect(app.getByText(/Failed to start session/)).toHaveCount(0);
 
   // The interface summarizes what the agent's Claude Code session did.
   await app.getByRole("radio", { name: "Interface" }).click();

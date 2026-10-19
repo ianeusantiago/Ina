@@ -731,6 +731,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn orchestrator_args_pass_the_policy() {
+        let mut args = orchestrator_args("p".into());
+        args.splice(1..1, ["--session-id".to_string(), "u".to_string()]);
+        crate::policy::validate_args(&args).unwrap();
+    }
+
+    #[test]
     fn prompts_ask_for_plain_chat_replies() {
         let p = plan(vec![agent("api", &[])]);
         assert!(orchestrator_prompt(&p, &HashMap::new()).ends_with(PLAIN_LANGUAGE));

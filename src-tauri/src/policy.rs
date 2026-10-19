@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use crate::pty::SpawnSpec;
 
 pub const MAX_SESSIONS: usize = 16;
-const MAX_ARGS: usize = 32;
+/// Sanity cap; the orchestrator's deny list (both shells) needs ~50.
+const MAX_ARGS: usize = 96;
 const MAX_ARG_LEN: usize = 32 * 1024;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
