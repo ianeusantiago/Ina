@@ -323,7 +323,7 @@ function Chat({
   );
 }
 
-function Bubble({
+export function Bubble({
   role,
   faded,
   children,

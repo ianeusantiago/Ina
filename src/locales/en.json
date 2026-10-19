@@ -200,5 +200,26 @@
       "other": "Working…"
     },
     "technical": "technical details in the terminal"
+  },
+  "home": {
+    "nav": "Home",
+    "title": "What are we building today?",
+    "hint": "Ask in a few words. I create the workspace, set up the team with an orchestrator and agents, and get it ready to start.",
+    "example1": "Create a workspace called Shop and build a product page with 2 agents",
+    "example2": "Create a To-do List project with one agent for the app and one for tests",
+    "placeholder": "E.g.: create a workspace called Blog and build a site with 3 agents…",
+    "inputLabel": "Message to INA",
+    "send": "Send",
+    "thinking": "Thinking…",
+    "creating": "Creating the workspace {{name}}…",
+    "planning": "Setting up the team…",
+    "starting": "Starting the team…",
+    "planFor": "Team for {{name}}",
+    "orchestratorRole": "coordinates and checks the work",
+    "start_one": "Approve and start ({{count}} session)",
+    "start_other": "Approve and start ({{count}} sessions)",
+    "started": "Team started.",
+    "trust": "Claude Code does not trust INA's projects folder yet. Open a terminal, run the command below once and accept the trust prompt. Then come back here.",
+    "trustRetry": "Done, continue"
   }
 }

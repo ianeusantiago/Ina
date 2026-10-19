@@ -4,7 +4,8 @@ import { SetupBanner } from "./components/SetupBanner";
 import { Sidebar } from "./components/Sidebar";
 import { setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
-import inaIcon from "./assets/ina-icon.svg";
+import { Home } from "./components/Home";
+import type { PlanDraft } from "./lib/team";
 import { TitleBar } from "./components/TitleBar";
 import { UsageBar } from "./components/UsageBar";
 import { addWorkspace, listWorkspaces, removeWorkspace, type Workspace } from "./lib/workspaces";
@@ -14,6 +15,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [started, setStarted] = useState<PlanDraft | null>(null);
 
   const run = useCallback(async (action: () => Promise<void>) => {
     try {
@@ -45,7 +47,11 @@ export default function App() {
           workspaces={workspaces}
           selectedId={selectedId}
           error={error}
-          onSelect={setSelectedId}
+          onSelect={(id) => {
+            setStarted(null);
+            setSelectedId(id);
+          }}
+          onHome={() => setSelectedId(null)}
           onAdd={(path) =>
             void run(async () => {
               const w = await addWorkspace(path);
@@ -68,13 +74,20 @@ export default function App() {
               workspaceId={selected.id}
               workspaceName={selected.name}
               workspacePath={selected.path}
+              started={started ?? undefined}
             />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-              <img src={inaIcon} alt="" className="size-20 drop-shadow-lg" />
-              <p className="text-[22px] font-semibold tracking-tight text-fg">{t("app.name")}</p>
-              <p className="max-w-xs text-[13px] text-muted">{t("workspaces.selectHint")}</p>
-            </div>
+            <Home
+              onWorkspacesChanged={() =>
+                void listWorkspaces()
+                  .then(setWorkspaces)
+                  .catch((e: unknown) => setError(String(e)))
+              }
+              onStarted={(w, d) => {
+                setStarted(d);
+                setSelectedId(w.id);
+              }}
+            />
           )}
         </div>
       </div>

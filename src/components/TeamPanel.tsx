@@ -336,14 +336,19 @@ export function TeamPanel({
   workspaceId,
   workspaceName,
   workspacePath,
+  started,
 }: {
   workspaceId: number;
   workspaceName: string;
   workspacePath: string;
+  /** Team approved elsewhere (Home): open it with its sessions starting now. */
+  started?: PlanDraft;
 }) {
   const { t } = useTranslation();
   const [request, setRequest] = useState("");
-  const [stage, setStage] = useState<Stage>({ kind: "request" });
+  const [stage, setStage] = useState<Stage>(
+    started ? { kind: "running", draft: started, resumed: false } : { kind: "request" },
+  );
   const [error, setError] = useState<string | null>(null);
   const [untrusted, setUntrusted] = useState(false);
   const [openTeams, setOpenTeams] = useState<PlanDraft[]>([]);

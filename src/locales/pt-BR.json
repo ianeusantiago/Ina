@@ -200,5 +200,26 @@
       "other": "Trabalhando…"
     },
     "technical": "detalhes técnicos no terminal"
+  },
+  "home": {
+    "nav": "Início",
+    "title": "O que vamos construir hoje?",
+    "hint": "Peça em poucas palavras. Eu crio o workspace, monto a equipe com orquestrador e agentes e deixo tudo pronto para começar.",
+    "example1": "Crie um workspace chamado Loja e faça uma página de produtos com 2 agentes",
+    "example2": "Crie um projeto Lista de Tarefas com um agente para o app e outro para os testes",
+    "placeholder": "Ex.: crie um workspace chamado Blog e faça um site com 3 agentes…",
+    "inputLabel": "Mensagem para o INA",
+    "send": "Enviar",
+    "thinking": "Pensando…",
+    "creating": "Criando o workspace {{name}}…",
+    "planning": "Montando a equipe…",
+    "starting": "Iniciando a equipe…",
+    "planFor": "Equipe para {{name}}",
+    "orchestratorRole": "coordena e confere o trabalho",
+    "start_one": "Aprovar e começar ({{count}} sessão)",
+    "start_other": "Aprovar e começar ({{count}} sessões)",
+    "started": "Equipe iniciada.",
+    "trust": "O Claude Code ainda não confia na pasta dos projetos do INA. Abra um terminal, rode o comando abaixo uma vez e aceite a confiança. Depois volte aqui.",
+    "trustRetry": "Já confiei, continuar"
   }
 }

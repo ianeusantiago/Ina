@@ -8,11 +8,20 @@ interface Props {
   selectedId: number | null;
   error: string | null;
   onSelect: (id: number) => void;
+  onHome: () => void;
   onAdd: (path: string) => void;
   onRemove: (id: number) => void;
 }
 
-export function Sidebar({ workspaces, selectedId, error, onSelect, onAdd, onRemove }: Props) {
+export function Sidebar({
+  workspaces,
+  selectedId,
+  error,
+  onSelect,
+  onHome,
+  onAdd,
+  onRemove,
+}: Props) {
   const { t } = useTranslation();
   const [path, setPath] = useState("");
 
@@ -26,6 +35,23 @@ export function Sidebar({ workspaces, selectedId, error, onSelect, onAdd, onRemo
 
   return (
     <aside className="flex w-64 shrink-0 flex-col aero-glass m-2 mr-0 rounded-2xl bg-sidebar text-[13px]">
+      <div className="px-2.5 pt-2.5">
+        <button
+          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition ${
+            selectedId === null ? "bg-accent font-medium text-white" : "text-fg hover:bg-hover"
+          }`}
+          aria-current={selectedId === null}
+          onClick={onHome}
+        >
+          <svg aria-hidden viewBox="0 0 16 16" className="size-3.5 shrink-0 opacity-90">
+            <path
+              fill="currentColor"
+              d="M8 1.8 1.5 7.2V14a.8.8 0 0 0 .8.8h3.9V10h3.6v4.8h3.9a.8.8 0 0 0 .8-.8V7.2z"
+            />
+          </svg>
+          {t("home.nav")}
+        </button>
+      </div>
       <h2 className="px-5 pt-3 pb-1.5 text-[11px] font-semibold text-muted">
         {t("workspaces.title")}
       </h2>
