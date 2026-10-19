@@ -280,6 +280,9 @@ impl Plan {
     }
 }
 
+/// The user reads the summary, names and roles; the agents read the rest.
+pub const PLAN_LANGUAGE: &str = "Write the summary, each name and each role in the language of the      user's request, in plain words for someone who may not be a programmer: the summary is 1-2      short sentences about what will be built, with no code, file names, commands or library      names. Keep scope, task, acceptance criteria and verify precise and technical: the agents      need them.";
+
 pub fn planner_prompt(request: &str) -> String {
     format!(
         "You are the INA orchestrator planner. Break the user's request into a small team of \
@@ -289,8 +292,9 @@ pub fn planner_prompt(request: &str) -> String {
          to {MAX_CHECKS} commands that check the criteria automatically, using only the programs \
          cargo, node, python or pytest (e.g. {{\"program\": \"pytest\", \"args\": [\"test_x.py\"]}}); \
          they run in the agent's worktree, so use [] when nothing can be checked. Choose mode \
-         \"parallel\" when agents can work at the same time, otherwise \"sequential\". Do not \
-         modify any files; only return the plan.\n\nUser request:\n{request}"
+         \"parallel\" when agents can work at the same time, otherwise \"sequential\". \
+         {PLAN_LANGUAGE} Do not modify any files; only return the plan.\n\nUser request:\n\
+         {request}"
     )
 }
 
@@ -735,6 +739,11 @@ mod tests {
         let mut args = orchestrator_args("p".into());
         args.splice(1..1, ["--session-id".to_string(), "u".to_string()]);
         crate::policy::validate_args(&args).unwrap();
+    }
+
+    #[test]
+    fn planner_asks_for_a_plain_summary() {
+        assert!(planner_prompt("x").contains(PLAN_LANGUAGE));
     }
 
     #[test]
