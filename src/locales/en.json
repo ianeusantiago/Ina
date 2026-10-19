@@ -290,5 +290,11 @@
       "title": "{{name}} asks for your permission",
       "body": "Open INA to allow or deny."
     }
+  },
+  "report": {
+    "homeTitle": "The team “{{name}}” finished!",
+    "howToTest": "How to try it",
+    "writing": "Writing a summary of what was done…",
+    "unavailable": "Could not write the summary right now."
   }
 }

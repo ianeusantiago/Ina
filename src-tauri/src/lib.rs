@@ -4,6 +4,7 @@ mod messages;
 mod plan;
 mod policy;
 mod pty;
+mod report;
 mod setup;
 mod store;
 mod tasks;
@@ -1373,6 +1374,57 @@ async fn message_decide(
 }
 
 /// Re-read running agents' `result.json` and return the team's task registry.
+/// Plain final report of a finished team (what was built, how to try it), from the plan and
+/// the agents' result summaries. Tool-less `claude -p` in the workspace root.
+#[tauri::command]
+async fn team_report(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<report::Report, String> {
+    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+    let root = workspace_root(&store, team.workspace_id)?;
+    if !folder_trusted(&root)? {
+        return Err(trust::NOT_TRUSTED.into());
+    }
+    let tasks = team_tasks(app, plan_id).await?;
+    let parts: Vec<report::Part> = team
+        .plan
+        .agents
+        .iter()
+        .map(|a| report::Part {
+            name: &a.name,
+            task: &a.task,
+            summary: tasks
+                .iter()
+                .find(|t| t.agent_id == a.id)
+                .and_then(|t| t.summary.as_deref()),
+        })
+        .collect();
+    let prompt = report::prompt(&team.plan.summary, &parts);
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let spec = policy::authorize(
+        Program::Claude,
+        report::args(&prompt),
+        &root,
+        &root,
+        0,
+        &path_var,
+    )
+    .map_err(|e| e.to_string())?;
+    blocking(move || {
+        let mut child = pty::piped_command(&spec)
+            .spawn()
+            .map_err(|e| format!("spawn: {e}"))?;
+        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(180))
+            .map_err(|e| e.to_string())?;
+        status.ok_or("timed out")?;
+        report::parse_output(&String::from_utf8_lossy(&output.stdout))
+    })
+    .await
+}
+
 #[tauri::command]
 async fn team_tasks(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<TaskView>, String> {
     blocking(move || sync_tasks(&app, plan_id)).await
@@ -1755,6 +1807,7 @@ pub fn run() {
             team_integrate,
             team_cleanup,
             team_archive,
+            team_report,
             team_list,
             team_tasks,
             claude_setup,

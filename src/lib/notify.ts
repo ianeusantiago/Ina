@@ -9,6 +9,7 @@ import i18n from "../i18n";
 import { listTeams, ORCHESTRATOR_ID, type TaskStatus, type TaskView } from "./team";
 import { TEAM_CHANGED, type TeamChanged } from "./usePolled";
 import type { Workspace } from "./workspaces";
+import { postReportToHome } from "./report";
 
 /** Statuses worth a desktop notification. */
 const NOTIFY: ReadonlySet<TaskStatus> = new Set(["done", "failed", "blocked"]);
@@ -52,6 +53,7 @@ export async function notify(title: string, body: string) {
 export function useTeamNotifications(workspaces: Workspace[]) {
   const seen = useRef(new Map<string, TaskStatus>());
   const names = useRef(new Map<string, string>());
+  const summaries = useRef(new Map<number, string>());
   const workspacesRef = useRef(workspaces);
   useEffect(() => {
     workspacesRef.current = workspaces;
@@ -65,6 +67,7 @@ export function useTeamNotifications(workspaces: Workspace[]) {
         for (const w of workspacesRef.current) {
           for (const team of await listTeams(w.id).catch(() => [])) {
             names.current.set(`${team.id}:${ORCHESTRATOR_ID}`, i18n.t("team.orchestrator"));
+            summaries.current.set(team.id, team.plan.summary);
             for (const a of team.plan.agents) names.current.set(`${team.id}:${a.id}`, a.name);
           }
         }
@@ -74,12 +77,19 @@ export function useTeamNotifications(workspaces: Workspace[]) {
     let stop: (() => void) | null = null;
     let gone = false;
     listen<TeamChanged>(TEAM_CHANGED, (e) => {
-      for (const { agentId, status } of transitions(
-        seen.current,
-        e.payload.planId,
-        e.payload.tasks,
-      )) {
-        void nameOf(e.payload.planId, agentId).then((name) =>
+      const { planId, tasks } = e.payload;
+      const changed = transitions(seen.current, planId, tasks);
+      if (
+        changed.some((c) => c.status === "done") &&
+        tasks.length > 0 &&
+        tasks.every((x) => x.status === "done")
+      ) {
+        void nameOf(planId, ORCHESTRATOR_ID).then(() =>
+          postReportToHome(planId, summaries.current.get(planId) ?? `#${planId}`),
+        );
+      }
+      for (const { agentId, status } of changed) {
+        void nameOf(planId, agentId).then((name) =>
           notify(i18n.t(`notify.${status}.title`, { name }), i18n.t(`notify.${status}.body`)),
         );
       }

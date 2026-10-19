@@ -290,5 +290,11 @@
       "title": "{{name}} pede sua permissão",
       "body": "Abra o INA para permitir ou negar."
     }
+  },
+  "report": {
+    "homeTitle": "A equipe “{{name}}” terminou!",
+    "howToTest": "Como testar",
+    "writing": "Escrevendo um resumo do que foi feito…",
+    "unavailable": "Não deu para escrever o resumo agora."
   }
 }
