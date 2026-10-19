@@ -5,6 +5,7 @@ mod plan;
 mod policy;
 mod pty;
 mod report;
+mod review;
 mod setup;
 mod store;
 mod tasks;
@@ -745,6 +746,59 @@ async fn team_usage(
             usage.add_log(log).map_err(|e| e.to_string())?;
         }
         Ok(usage)
+    })
+    .await
+}
+
+/// Reviewer before merging: a tool-less `claude -p` reads every agent's diff and answers in
+/// plain words whether it is safe to merge.
+#[tauri::command]
+async fn team_review(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<review::Review, String> {
+    let (git, ordered, team) = team_git(&store, &plans, plan_id)?;
+    let root = workspace_root(&store, team.workspace_id)?;
+    if !folder_trusted(&root)? {
+        return Err(trust::NOT_TRUSTED.into());
+    }
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    blocking(move || {
+        let mut diffs = Vec::new();
+        for (id, wt) in &ordered {
+            let (stat, patch) = git.branch_diff(&wt.branch).map_err(|e| e.to_string())?;
+            let agent = team.plan.agent(id).map_err(|e| e.to_string())?;
+            diffs.push((agent.name.clone(), agent.task.clone(), stat, patch));
+        }
+        let parts: Vec<review::Part> = diffs
+            .iter()
+            .map(|(name, task, stat, diff)| review::Part {
+                name,
+                task,
+                stat,
+                diff,
+            })
+            .collect();
+        let (prompt, truncated) = review::prompt(&team.plan.summary, &parts);
+        let spec = policy::authorize(
+            Program::Claude,
+            review::args(&prompt),
+            &root,
+            &root,
+            0,
+            &path_var,
+        )
+        .map_err(|e| e.to_string())?;
+        let mut child = pty::piped_command(&spec)
+            .spawn()
+            .map_err(|e| format!("spawn: {e}"))?;
+        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(300))
+            .map_err(|e| e.to_string())?;
+        status.ok_or("timed out")?;
+        let mut r = review::parse_output(&String::from_utf8_lossy(&output.stdout))?;
+        r.truncated = truncated;
+        Ok(r)
     })
     .await
 }
@@ -1958,6 +2012,7 @@ pub fn run() {
             preview_page,
             team_resumable,
             team_usage,
+            team_review,
             team_list,
             team_tasks,
             claude_setup,

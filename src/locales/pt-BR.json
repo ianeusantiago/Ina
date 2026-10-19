@@ -333,5 +333,13 @@
   "resume": {
     "continue": "Continuar conversa",
     "fresh": "Começar do zero"
+  },
+  "review": {
+    "ask": "Pedir revisão",
+    "again": "Revisar de novo",
+    "working": "O revisor está lendo as mudanças…",
+    "ok": "O revisor não encontrou problemas.",
+    "issues": "O revisor encontrou pontos para olhar antes de juntar.",
+    "truncated": "As mudanças eram grandes; o revisor leu só uma parte de cada agente."
   }
 }

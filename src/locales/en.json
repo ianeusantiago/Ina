@@ -333,5 +333,13 @@
   "resume": {
     "continue": "Continue conversation",
     "fresh": "Start over"
+  },
+  "review": {
+    "ask": "Ask for a review",
+    "again": "Review again",
+    "working": "The reviewer is reading the changes…",
+    "ok": "The reviewer found no problems.",
+    "issues": "The reviewer found things to look at before merging.",
+    "truncated": "The changes were large; the reviewer read only part of each agent's work."
   }
 }
