@@ -118,50 +118,6 @@ body {
   }
 }
 
-/* Frutiger Aero: floating bubbles over the sky. */
-#root::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.9),
-        rgb(255 255 255 / 0.15) 40%,
-        transparent 62%
-      )
-      8% 70% / 90px 90px no-repeat,
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.85),
-        rgb(255 255 255 / 0.12) 40%,
-        transparent 62%
-      )
-      92% 35% / 140px 140px no-repeat,
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.8),
-        rgb(255 255 255 / 0.1) 40%,
-        transparent 62%
-      )
-      70% 85% / 60px 60px no-repeat,
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.8),
-        rgb(255 255 255 / 0.1) 40%,
-        transparent 62%
-      )
-      45% 18% / 46px 46px no-repeat;
-  animation: aero-float 14s ease-in-out infinite alternate;
-}
-@keyframes aero-float {
-  to {
-    transform: translateY(-18px);
-  }
-}
-
 /* Glass surface with gloss highlight. */
 .aero-glass {
   background: var(--ina-gloss), var(--ina-surface);
