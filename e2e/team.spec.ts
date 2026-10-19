@@ -23,9 +23,32 @@ test("plan, approve, verify and preview integration", async ({ app }) => {
   await expect(approve).toBeVisible({ timeout: 5 * 60_000 });
   await expect(app.locator("code", { hasText: "python -m unittest test_e2e_mod" })).toBeVisible();
   await approve.click();
+  await app.getByRole("radio", { name: "Terminals" }).click();
 
-  const tasks = app.locator("section", { hasText: "Tasks" }).first();
+  // Exact heading: "Tasks" alone would also match the Interface ("Task" + "Single…").
+  const tasks = app.locator("section", { has: app.getByText("Tasks", { exact: true }) }).first();
   await expect(tasks).toContainText("verified: 1 check(s) passed", { timeout: 8 * 60_000 });
+  // Every session (orchestrator included) started.
+  await expect(app.getByText(/Failed to start session/)).toHaveCount(0);
+
+  // The interface summarizes what the agent's Claude Code session did.
+  // Members are listed under the workspace in the sidebar (newest team first, open).
+  await app.locator("aside li li ul").first().getByRole("button").nth(1).click();
+  await expect(app.getByRole("radio", { name: "Interface" })).toBeChecked();
+  // The agent's reply from its Claude Code session shows as a chat bubble.
+  await expect(app.locator('[data-role="agent"]').first()).toBeVisible({ timeout: 15_000 });
+  // Typing in the interface reaches the agent, and its answer comes back here.
+  await app.getByRole("textbox", { name: /^Message / }).fill("Reply with only the word pong.");
+  await app.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(app.locator('[data-role="user"]', { hasText: "pong" }).first()).toBeVisible();
+  await expect(app.locator('[data-role="agent"]', { hasText: /pong/i }).last()).toBeVisible({
+    timeout: 3 * 60_000,
+  });
+  // Switching views keeps the selected member.
+  await app.getByRole("radio", { name: "Terminals" }).click();
+  await app.getByRole("radio", { name: "Interface" }).click();
+  await expect(app.locator('[data-role="agent"]', { hasText: /pong/i }).last()).toBeVisible();
+  await app.getByRole("radio", { name: "Terminals" }).click();
 
   await app.getByRole("button", { name: "Integrate", exact: true }).click();
   await expect(app.getByText("Preview (nothing was changed):")).toBeVisible();
@@ -44,6 +67,7 @@ test("resizes the task area by dragging and with the keyboard", async ({ app }) 
   await app.getByRole("combobox").first().selectOption("en");
   await app.getByRole("button", { name: workspace ?? "", exact: true }).click();
   await app.getByRole("button", { name: "Resume" }).first().click();
+  await app.getByRole("radio", { name: "Terminals" }).click();
   const handle = app.getByRole("separator", { name: /Resize panels/ });
   const area = handle.locator("xpath=preceding-sibling::div[1]");
   await handle.focus();

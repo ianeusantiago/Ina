@@ -326,12 +326,18 @@ pub fn orchestrator_prompt(plan: &Plan, worktrees: &HashMap<String, Worktree>) -
          \"instruction\", \"to\": \"<agent id>\", \"text\": \"...\"}}; the user approves it in INA \
          before it is delivered. Write no other files. Never merge, rebase, reset or commit \
          yourself: the user integrates through INA after reviewing. Do not do the agents' work \
-         yourself.",
+         yourself.{}",
         plan.mode,
         plan.summary,
-        team.join("\n")
+        team.join("\n"),
+        PLAIN_LANGUAGE
     )
 }
+
+/// Appended to every session prompt: replies are read in INA's chat Interface.
+pub const PLAIN_LANGUAGE: &str = "
+
+Your chat replies are shown in INA's Interface to someone who may      not be a programmer. Reply in the language the user writes in (the plan's language if they      have not written yet), in 1-3 short, plain sentences: what you did, what you need, or what      comes next. In chat, never mention commit hashes, file paths, code, commands or tool names;      keep those details for `.ina/result.json` and the terminal.";
 
 pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
     let criteria: Vec<String> = agent.acceptance.iter().map(|c| format!("- {c}")).collect();
@@ -346,7 +352,7 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
          are met. To ask the user something, report progress or hand off to another agent, write \
          `.ina/outbox/<name>.json`: {{\"type\": \"question\" | \"progress\" | \"blocked\" | \
          \"handoff\", \"text\": \"...\", \"to\": \"<agent id, optional>\"}}. Answers and \
-         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it. If `.ina/task.json` has `previousAttempt`, an earlier run ended that way: fix that first.",
+         instructions arrive in `.ina/inbox/`; when INA tells you about a new message, read it. If `.ina/task.json` has `previousAttempt`, an earlier run ended that way: fix that first.{}",
         agent.name,
         agent.role,
         plan.summary,
@@ -358,7 +364,8 @@ pub fn agent_prompt(plan: &Plan, agent: &AgentSpec, branch: &str) -> String {
         } else {
             agent.depends_on.join(", ")
         },
-        branch
+        branch,
+        PLAIN_LANGUAGE
     )
 }
 
@@ -538,6 +545,8 @@ pub struct PlanStore {
     approved: Mutex<HashMap<u64, Team>>,
     /// Teams whose worktrees are being removed: the background tick leaves them alone.
     cleaning: Mutex<std::collections::HashSet<u64>>,
+    /// (team, agent) -> Claude Code session id of the agent's latest session (its log name).
+    logs: Mutex<HashMap<(u64, String), String>>,
 }
 
 impl PlanStore {
@@ -675,6 +684,17 @@ impl PlanStore {
         Ok(())
     }
 
+    pub fn set_log(&self, team: u64, agent: &str, session_id: &str) {
+        let mut g = self.logs.lock().expect("log map poisoned");
+        g.insert((team, agent.to_owned()), session_id.to_owned());
+    }
+
+    /// Claude session id of the agent's latest session started since INA launched.
+    pub fn log(&self, team: u64, agent: &str) -> Option<String> {
+        let g = self.logs.lock().expect("log map poisoned");
+        g.get(&(team, agent.to_owned())).cloned()
+    }
+
     pub fn add_session(&self, team: u64, session: &str, agent: &str) {
         let mut g = self.sessions.lock().expect("session map poisoned");
         g.entry(team)
@@ -709,6 +729,20 @@ impl PlanStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orchestrator_args_pass_the_policy() {
+        let mut args = orchestrator_args("p".into());
+        args.splice(1..1, ["--session-id".to_string(), "u".to_string()]);
+        crate::policy::validate_args(&args).unwrap();
+    }
+
+    #[test]
+    fn prompts_ask_for_plain_chat_replies() {
+        let p = plan(vec![agent("api", &[])]);
+        assert!(orchestrator_prompt(&p, &HashMap::new()).ends_with(PLAIN_LANGUAGE));
+        assert!(agent_prompt(&p, &p.agents[0], "b").ends_with(PLAIN_LANGUAGE));
+    }
 
     #[test]
     fn orchestrator_denies_git_writes_in_both_shells() {

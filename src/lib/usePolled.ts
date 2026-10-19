@@ -7,6 +7,8 @@ import type { TaskView } from "./team";
 export const POLL_MS = 15000;
 /** Backend event emitted when a team's tasks or messages changed. */
 export const TEAM_CHANGED = "team-changed";
+/** Window event the UI dispatches after approving a team (the list of teams changed). */
+export const TEAMS_CHANGED = "ina-teams-changed";
 
 export interface TeamChanged {
   planId: number;

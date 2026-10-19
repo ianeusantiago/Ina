@@ -1,3 +1,5 @@
+mod activity;
+mod home;
 mod messages;
 mod plan;
 mod policy;
@@ -210,6 +212,86 @@ fn folder_trusted(root: &std::path::Path) -> Result<bool, String> {
 fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool, String> {
     let root = workspace_root(&store, workspace_id)?;
     folder_trusted(&root)
+}
+
+fn home_dir() -> Result<PathBuf, String> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .ok_or_else(|| "no home directory".into())
+}
+
+/// The folder new workspaces go in, created on demand.
+fn home_base() -> Result<PathBuf, String> {
+    let base = home::base(&home_dir()?);
+    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    Ok(policy::simplify(
+        base.canonicalize().map_err(|e| e.to_string())?,
+    ))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HomeBase {
+    path: String,
+    trusted: bool,
+}
+
+#[tauri::command]
+fn home_info() -> Result<HomeBase, String> {
+    let base = home_base()?;
+    Ok(HomeBase {
+        trusted: folder_trusted(&base)?,
+        path: base.display().to_string(),
+    })
+}
+
+/// Reads what the user wants from the home screen (no tools: it can only answer).
+#[tauri::command]
+async fn home_intent(request: String) -> Result<home::Intent, String> {
+    let request = request.trim().to_string();
+    if request.is_empty() || request.len() > home::MAX_REQUEST_LEN {
+        return Err("request is empty or too long".into());
+    }
+    let base = home_base()?;
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let spec = policy::authorize(
+        Program::Claude,
+        home::intent_args(&request),
+        &base,
+        &base,
+        0,
+        &path_var,
+    )
+    .map_err(|e| e.to_string())?;
+    blocking(move || {
+        let mut child = pty::piped_command(&spec)
+            .spawn()
+            .map_err(|e| format!("spawn: {e}"))?;
+        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(180))
+            .map_err(|e| e.to_string())?;
+        status.ok_or("timed out")?;
+        home::parse_output(&String::from_utf8_lossy(&output.stdout))
+    })
+    .await
+}
+
+/// New workspace `<base>/<name>` as a git repo with one commit, added to INA.
+#[tauri::command]
+async fn workspace_create(store: State<'_, Store>, name: String) -> Result<Workspace, String> {
+    let base = home_base()?;
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
+    let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
+    let dir = blocking(move || {
+        let dir = home::create_dir(&base, &name)?;
+        worktree::Git::new(exe, dir.clone(), env_remove)
+            .init_repo()
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>(dir)
+    })
+    .await?;
+    store.add_workspace(&dir).map_err(|e| e.to_string())
 }
 
 /// Git runner for a workspace root (program resolved by the policy, Claude env stripped).
@@ -672,6 +754,10 @@ async fn pty_spawn_agent(
         if let Some(s) = usage::claude_settings(&exe, &claude_usage_file(&app)?) {
             args.extend(["--settings".to_string(), s]);
         }
+        // Known session id: the interface reads exactly this session's log.
+        let session_id = activity::new_session_id();
+        args.extend(["--session-id".to_string(), session_id.clone()]);
+        plans.set_log(plan_id, &agent_id, &session_id);
     }
     let mut spec = policy::authorize(program, args, &root, &cwd, pty.count(), &path_var)
         .map_err(|e| e.to_string())?;
@@ -1323,6 +1409,71 @@ fn pty_kill(pty: State<'_, PtyManager>, id: String) -> Result<(), String> {
     pty.kill(&id).map_err(|e| e.to_string())
 }
 
+/// Working directory and CLI of a team member (the orchestrator runs Claude in the root).
+fn member(
+    store: &Store,
+    plans: &PlanStore,
+    plan_id: u64,
+    agent_id: &str,
+) -> Result<(PathBuf, plan::AgentCli), String> {
+    let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
+    if agent_id == plan::ORCHESTRATOR_ID {
+        return Ok((
+            workspace_root(store, team.workspace_id)?,
+            plan::AgentCli::Claude,
+        ));
+    }
+    let agent = team.plan.agent(agent_id).map_err(|e| e.to_string())?;
+    let wt = team
+        .worktrees
+        .get(agent_id)
+        .ok_or("agent has no worktree")?;
+    Ok((wt.path.clone(), agent.cli))
+}
+
+/// What a team member did, from its CLI's session log; empty before its first session.
+#[tauri::command]
+async fn agent_activity(
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+    agent_id: String,
+) -> Result<Vec<activity::Event>, String> {
+    let (cwd, cli) = member(&store, &plans, plan_id, &agent_id)?;
+    let session_id = plans.log(plan_id, &agent_id);
+    blocking(
+        move || match activity::find_log(cli, &cwd, session_id.as_deref()) {
+            Some(file) => activity::read_log(cli, &file).map_err(|e| e.to_string()),
+            None => Ok(vec![]),
+        },
+    )
+    .await
+}
+
+/// Type a line into a team member's live terminal (the interface's message box).
+#[tauri::command]
+fn agent_send(
+    pty: State<'_, PtyManager>,
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+    agent_id: String,
+    text: String,
+) -> Result<(), String> {
+    member(&store, &plans, plan_id, &agent_id)?;
+    let line = activity::terminal_input(&text).ok_or("message is empty or too long")?;
+    let session = plans
+        .agent_sessions(plan_id, &agent_id)
+        .into_iter()
+        .rev()
+        .find(|s| pty.is_running(s))
+        .ok_or("no running session for this agent")?;
+    pty.write(&session, line.as_bytes())
+        .map_err(|e| e.to_string())?;
+    // Enter on its own: the TUIs treat text and Enter arriving together as a paste.
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    pty.write(&session, b"\r").map_err(|e| e.to_string())
+}
 pub const USAGE_SINK_FLAG: &str = usage::SINK_FLAG;
 
 pub fn usage_sink(file: &std::path::Path) {
@@ -1566,6 +1717,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pty_spawn_shell,
             pty_spawn_agent,
+            home_info,
+            home_intent,
+            workspace_create,
             plan_generate,
             plan_draft,
             plan_approve,
@@ -1583,6 +1737,8 @@ pub fn run() {
             team_tasks,
             claude_setup,
             usage_read,
+            agent_activity,
+            agent_send,
             team_messages,
             team_send,
             message_decide,
