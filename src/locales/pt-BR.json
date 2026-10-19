@@ -11,11 +11,6 @@
       "light": "Claro",
       "dark": "Escuro",
       "system": "Sistema"
-    },
-    "window": {
-      "close": "Fechar",
-      "minimize": "Minimizar",
-      "maximize": "Maximizar"
     }
   },
   "terminal": {
