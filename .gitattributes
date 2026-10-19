@@ -1,0 +1,5 @@
+# LF everywhere (Prettier and rustfmt expect it; Windows checkouts would otherwise get CRLF).
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary

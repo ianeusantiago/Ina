@@ -341,5 +341,12 @@
     "ok": "O revisor não encontrou problemas.",
     "issues": "O revisor encontrou pontos para olhar antes de juntar.",
     "truncated": "As mudanças eram grandes; o revisor leu só uma parte de cada agente."
+  },
+  "update": {
+    "available": "Nova versão {{version}} disponível",
+    "hint": "Instala em segundos e reabre o INA.",
+    "install": "Atualizar e reiniciar",
+    "later": "Depois",
+    "downloading": "Baixando… {{pct}}%"
   }
 }
