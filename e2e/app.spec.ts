@@ -39,5 +39,5 @@ test("rejects a path that is not a directory", async ({ app }) => {
   await app.getByRole("combobox").first().selectOption("en");
   await app.locator("aside form input").fill(join(tmpdir(), "ina-e2e-missing-xyz"));
   await app.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(app.getByRole("alert")).toContainText("not a directory");
+  await expect(app.locator("aside").getByRole("alert")).toContainText("not a directory");
 });

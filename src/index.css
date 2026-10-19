@@ -42,11 +42,8 @@
   --ina-green: #2a9d3a;
   --ina-term-bg: #ffffff;
   --ina-term-fg: #0b2a44;
-  --ina-sky:
-    radial-gradient(120% 60% at 15% 115%, #8fdc4a 0 38%, transparent 39%),
-    radial-gradient(130% 55% at 85% 120%, #5cc232 0 40%, transparent 41%),
-    radial-gradient(60% 40% at 80% 8%, rgb(255 255 255 / 0.9), transparent 70%),
-    linear-gradient(180deg, #3fb4f2 0%, #8fd6fb 45%, #dff4ff 75%);
+  /* Frutiger Aero art: sky, sun flare, aurora ribbons, glossy hills, glass bubbles. */
+  --ina-sky: url("./assets/aero-day.svg") center / cover no-repeat;
   --ina-glass-edge: rgb(255 255 255 / 0.9);
   --ina-glass-shadow: rgb(6 70 120 / 0.18);
   --ina-gloss: linear-gradient(180deg, rgb(255 255 255 / 0.75), rgb(255 255 255 / 0) 55%);
@@ -69,11 +66,7 @@
   --ina-green: #5be06a;
   --ina-term-bg: #061a2c;
   --ina-term-fg: #eaf7ff;
-  --ina-sky:
-    radial-gradient(70% 45% at 20% 0%, rgb(60 230 200 / 0.35), transparent 70%),
-    radial-gradient(60% 40% at 85% 10%, rgb(40 140 255 / 0.4), transparent 70%),
-    radial-gradient(130% 50% at 50% 125%, #0b5e3a 0 40%, transparent 41%),
-    linear-gradient(180deg, #021022 0%, #06284a 60%, #0a3a5c 100%);
+  --ina-sky: url("./assets/aero-night.svg") center / cover no-repeat;
   --ina-glass-edge: rgb(160 230 255 / 0.28);
   --ina-glass-shadow: rgb(0 0 0 / 0.45);
   --ina-gloss: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0) 55%);
@@ -122,50 +115,6 @@ body {
   * {
     transition: none !important;
     animation: none !important;
-  }
-}
-
-/* Frutiger Aero: floating bubbles over the sky. */
-#root::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.9),
-        rgb(255 255 255 / 0.15) 40%,
-        transparent 62%
-      )
-      8% 70% / 90px 90px no-repeat,
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.85),
-        rgb(255 255 255 / 0.12) 40%,
-        transparent 62%
-      )
-      92% 35% / 140px 140px no-repeat,
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.8),
-        rgb(255 255 255 / 0.1) 40%,
-        transparent 62%
-      )
-      70% 85% / 60px 60px no-repeat,
-    radial-gradient(
-        circle at 30% 30%,
-        rgb(255 255 255 / 0.8),
-        rgb(255 255 255 / 0.1) 40%,
-        transparent 62%
-      )
-      45% 18% / 46px 46px no-repeat;
-  animation: aero-float 14s ease-in-out infinite alternate;
-}
-@keyframes aero-float {
-  to {
-    transform: translateY(-18px);
   }
 }
 

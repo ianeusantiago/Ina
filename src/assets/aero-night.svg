@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#020b1f"/>
+      <stop offset="0.5" stop-color="#06284d"/>
+      <stop offset="1" stop-color="#0b4a6e"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#eafcff" stop-opacity="0.95"/>
+      <stop offset="0.18" stop-color="#bfefff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#5ad1ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="aurora" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2ef2b0" stop-opacity="0"/>
+      <stop offset="0.4" stop-color="#2ef2b0" stop-opacity="0.45"/>
+      <stop offset="0.75" stop-color="#3ab8ff" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#8a5cff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="aurora2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5ad1ff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#5ad1ff" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#2ef2b0" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="hillBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f6b3a"/>
+      <stop offset="1" stop-color="#0b3320"/>
+    </linearGradient>
+    <linearGradient id="hillFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3fa04a"/>
+      <stop offset="0.4" stop-color="#1c6a2e"/>
+      <stop offset="1" stop-color="#082a17"/>
+    </linearGradient>
+    <radialGradient id="bubble" cx="0.32" cy="0.28" r="0.75">
+      <stop offset="0" stop-color="#dff8ff" stop-opacity="0.8"/>
+      <stop offset="0.25" stop-color="#bfefff" stop-opacity="0.15"/>
+      <stop offset="0.8" stop-color="#5ad1ff" stop-opacity="0.1"/>
+      <stop offset="0.95" stop-color="#bfefff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="14"/></filter>
+    <symbol id="b" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="48" fill="url(#bubble)"/>
+      <circle cx="50" cy="50" r="47" fill="none" stroke="#bfefff" stroke-opacity="0.45" stroke-width="1.6"/>
+      <ellipse cx="34" cy="27" rx="13" ry="7" fill="#fff" opacity="0.7" transform="rotate(-30 34 27)"/>
+    </symbol>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <!-- stars -->
+  <g fill="#fff">
+    <circle cx="120" cy="90" r="2" opacity="0.8"/><circle cx="340" cy="160" r="1.5" opacity="0.6"/>
+    <circle cx="520" cy="60" r="2.2" opacity="0.9"/><circle cx="760" cy="200" r="1.4" opacity="0.5"/>
+    <circle cx="980" cy="90" r="1.8" opacity="0.7"/><circle cx="1220" cy="140" r="2" opacity="0.8"/>
+    <circle cx="1420" cy="70" r="1.5" opacity="0.6"/><circle cx="1700" cy="220" r="2" opacity="0.7"/>
+    <circle cx="1860" cy="110" r="1.6" opacity="0.6"/><circle cx="640" cy="320" r="1.3" opacity="0.5"/>
+    <circle cx="1100" cy="300" r="1.4" opacity="0.5"/><circle cx="260" cy="340" r="1.6" opacity="0.6"/>
+  </g>
+  <circle cx="1560" cy="170" r="300" fill="url(#moon)"/>
+  <circle cx="1560" cy="170" r="46" fill="#eafcff" opacity="0.9"/>
+
+  <!-- aurora ribbons -->
+  <g filter="url(#blur)">
+    <path d="M-100 560C300 360 620 640 980 500S1600 300 2020 400v110C1650 400 1320 560 980 610S320 470-100 690z" fill="url(#aurora)"/>
+    <path d="M-100 680C380 520 700 760 1060 640S1640 480 2020 570v60C1660 540 1360 680 1060 720S380 620-100 760z" fill="url(#aurora2)"/>
+  </g>
+
+  <!-- hills -->
+  <path d="M-40 900C240 760 520 780 820 850S1400 800 1960 740V1120H-40z" fill="url(#hillBack)"/>
+  <path d="M-40 990C300 860 640 900 980 960S1600 930 1960 860V1120H-40z" fill="url(#hillFront)"/>
+  <path d="M-40 990C300 860 640 900 980 960S1600 930 1960 860" fill="none" stroke="#7cf0c8" stroke-width="4" opacity="0.45"/>
+
+  <!-- bubbles -->
+  <use href="#b" x="120" y="420" width="120" height="120" opacity="0.7"/>
+  <use href="#b" x="760" y="140" width="70" height="70" opacity="0.6"/>
+  <use href="#b" x="1380" y="560" width="150" height="150" opacity="0.7"/>
+  <use href="#b" x="1640" y="420" width="64" height="64" opacity="0.6"/>
+  <use href="#b" x="1820" y="760" width="90" height="90" opacity="0.6"/>
+  <use href="#b" x="560" y="520" width="34" height="34" opacity="0.5"/>
+</svg>
