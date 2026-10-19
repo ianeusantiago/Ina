@@ -220,6 +220,7 @@
     "start_other": "Approve and start ({{count}} sessions)",
     "started": "Team started.",
     "trust": "Claude Code does not trust INA's projects folder yet. Open a terminal, run the command below once and accept the trust prompt. Then come back here.",
-    "trustRetry": "Done, continue"
+    "trustRetry": "Done, continue",
+    "newConversation": "New conversation"
   }
 }

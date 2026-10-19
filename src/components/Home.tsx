@@ -5,14 +5,9 @@ import { createWorkspace, homeInfo, homeIntent, type HomeBase } from "../lib/hom
 import { approvePlan, generatePlan, workspaceTrusted, type PlanDraft } from "../lib/team";
 import { TEAMS_CHANGED } from "../lib/usePolled";
 import type { Workspace } from "../lib/workspaces";
+import { addHomeItem, newHomeConversation, setHome, useHome } from "../lib/homeStore";
 import { Bubble } from "./InterfaceView";
 import { errorText, field, ghostButton, primaryButton } from "./ui";
-
-type Item =
-  | { kind: "user"; text: string }
-  | { kind: "agent"; text: string }
-  | { kind: "plan"; workspace: Workspace; draft: PlanDraft; started: boolean }
-  | { kind: "trust"; path: string; workspace: Workspace; task: string };
 
 /** Home: talk to Claude; it can create a workspace and set up a team for a request. */
 export function Home({
@@ -24,10 +19,10 @@ export function Home({
   onStarted: (workspace: Workspace, draft: PlanDraft) => void;
 }) {
   const { t } = useTranslation();
-  const [items, setItems] = useState<Item[]>([]);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { items, draft, busy, error } = useHome();
+  const setDraft = (v: string) => setHome({ draft: v });
+  const setBusy = (v: string | null) => setHome({ busy: v });
+  const setError = (v: string | null) => setHome({ error: v });
   const [base, setBase] = useState<HomeBase | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -41,7 +36,7 @@ export function Home({
     if (el) el.scrollTop = el.scrollHeight;
   }, [items.length, busy]);
 
-  const add = (item: Item) => setItems((list) => [...list, item]);
+  const add = addHomeItem;
 
   /** Plan the team in the new workspace (needs the base folder trusted in Claude Code). */
   const plan = async (workspace: Workspace, task: string) => {
@@ -87,9 +82,11 @@ export function Home({
       setBusy(t("home.starting"));
       await approvePlan(d.id, Object.fromEntries(d.plan.agents.map((a) => [a.id, a.cli])));
       window.dispatchEvent(new Event(TEAMS_CHANGED));
-      setItems((list) =>
-        list.map((it, i) => (i === index && it.kind === "plan" ? { ...it, started: true } : it)),
-      );
+      setHome((s) => ({
+        items: s.items.map((it, i) =>
+          i === index && it.kind === "plan" ? { ...it, started: true } : it,
+        ),
+      }));
       onStarted(workspace, d);
     });
 
@@ -176,6 +173,17 @@ export function Home({
           )}
         </div>
       </div>
+      {items.length > 0 && (
+        <div className="mx-auto flex w-full max-w-2xl justify-end px-6 pb-2">
+          <button
+            className={`text-xs ${ghostButton}`}
+            disabled={busy !== null}
+            onClick={newHomeConversation}
+          >
+            {t("home.newConversation")}
+          </button>
+        </div>
+      )}
       <form onSubmit={send} className="px-6 pb-5">
         <div className={`aero-card mx-auto flex max-w-2xl items-end gap-2 p-2 ${field}`}>
           <textarea
