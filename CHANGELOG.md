@@ -1,95 +1,68 @@
-# Changelog
+# Histórico de mudanças
 
-Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Unreleased] — Phase 6 (macOS-style design)
+## [Não lançado]
 
-### Changed
-- New macOS-inspired UI: light theme by default, with Dark and System options (saved; System follows the OS live).
-- Semantic color tokens for both themes; system font stack (SF Pro / Segoe UI Variable), Apple blue accent, rounded cards with soft shadows.
-- Frameless window with a unified title bar: traffic-light buttons (close, minimize, zoom), drag region, double-click to zoom.
-- Translucent sidebar source list with folder icons; terminal colors follow the theme (ANSI palette tuned for light backgrounds).
+### Alterado
 
-## Phase 5 (known issues)
+- README, CONTRIBUTING, SECURITY, este histórico e os modelos de issue e PR em português e atualizados.
 
-### Security
-- Orchestrator deny list also covers the PowerShell tool and more git forms (`-C`, `-c`, `restore`, `stash`, `worktree`, `update-ref`, `branch -f/-D`); rules verified with `claude -p`.
+## [0.1.0] — 2026-10-19
 
-## Phase 4 (known issues)
+Primeira versão pública: instalador do Windows com atualização automática.
 
-### Fixed
-- A task left `running` with no live session (two sessions of an agent exiting together) is finished by the tick after two ticks in a row, not only at startup.
+### Adicionado
 
-### Added
-- A generated but unapproved plan is shown again for review after the window reloads.
+- **Tela Início:** conversa com o Claude que cria o workspace (em `INA Projects`), monta a equipe e oferece “Aprovar e começar”; a conversa fica salva; modelos de equipe (Site, API + testes, Corrigir bug, Melhorar código) com ícones Aqua.
+- **Interface tipo chat** para orquestrador e agentes, lida dos logs das sessões; alterna com os terminais reais.
+- **Permissões pela Interface:** cartão Permitir / Permitir sempre / Negar com “Ver detalhes”.
+- **Barra lateral em árvore** (workspace → equipes → membros com status), filtro e arquivamento de equipes.
+- **Fim guiado:** quando todos terminam, prévia da integração, juntar no projeto e limpar; **resumo final** em linguagem simples (“o que foi feito” e “como testar”) no banner e na Início; **revisor** por IA antes de juntar.
+- **Painel de progresso** com etapas e porcentagem; **uso de tokens** por equipe.
+- **Notificações do Windows** (terminou, falhou, travou, pede permissão).
+- **Continuar conversa** depois de fechar o app (`--resume`).
+- **Prévia do projeto** dentro do app (`index.html` ou `localhost`) em sandbox.
+- **Seletor de pasta** nativo.
+- Agentes podem rodar no **Codex** (escolha por agente na revisão do plano); rodapé com o uso do plano do Claude Code e do Codex.
+- **Instalador NSIS** e **atualização automática assinada**; workflow de release por tag.
+- **CI no GitHub** (build, lint, formato, Vitest, clippy e testes Rust) em todo PR.
 
-### Changed
-- `team-changed` carries the synced tasks; the task panel uses them instead of syncing again.
-- Agent prerequisites come from the backend (`TaskView.prerequisites`); the TypeScript copy was removed.
-- `Registry::task` reads a single row; unused per-worktree locks are dropped.
+### Alterado
 
-## Phase 3 (architecture)
+- Visual **Frutiger Aero**: arte de fundo dia/noite, vidro, botões Aqua e ícone redesenhado; tema claro por padrão, escuro e sistema.
+- Respostas dos agentes, resumo do plano e status em **linguagem simples**; detalhes técnicos ficam no terminal.
 
-### Changed
-- A background tick (every 5 s) applies results, starts verifications and ingests outboxes for every open team, so work moves on even with no team panel open; startup recovery moved off the window-opening path.
-- Task registry exposes typed statuses (`Registry::tasks`/`task`); no more string comparisons.
-- Team branch status runs git for each worktree in parallel.
-- Open panels refresh on a `team-changed` event pushed by the tick; their poll is now a 15 s fallback.
-- Agent timeouts are checked by the tick (no thread per session); the tick survives a panic and skips teams being cleaned up.
-- Verification claims are released even if a verification thread panics; prerequisite merges lock per worktree instead of globally.
-- Approved teams are cached decoded (dropped on close or workspace removal).
+### Corrigido
 
-### Security
-- Integration always requires each agent to be `done`: teams approved before the registry existed get pending rows at startup instead of skipping the gate.
+- O orquestrador não abria (“too many arguments”) depois que a lista de bloqueios cresceu; agora há teste e o E2E falha se alguma sessão não abrir.
+- A conversa da Início não some mais ao trocar de tela.
 
-## Phase 2 (reliable orchestration)
+### Segurança
 
-### Added
-- Startup recovery: running tasks whose session was lost are finished with their result or as lost.
-- Dependency-aware scheduler: prerequisites (and sequential mode) enforced, prerequisite branches merged into the dependent's worktree, blocked/unblocked dependents, optional auto-start, 60-minute agent timeout.
-- Structured messages: `.ina/outbox/` → validated, stored and logged; answers and approved orchestrator instructions delivered to `.ina/inbox/` with a fixed terminal notice; Messages panel.
-- Result verification: per-agent checks approved with the plan (`cargo`/`node`/`python`/`pytest`), new `verifying` status, declared vs changed files.
-- Integration preview with `git merge-tree` (no refs or files touched) and overlapping-file warnings.
-- `previousAttempt` in `task.json` when a task is re-run.
-- Playwright E2E attached to the app over CDP; opt-in full team flow.
-- Draggable (and keyboard-resizable) divider between the task/message panels and the terminals, remembered per machine.
+- Lista de bloqueios do orquestrador cobre também a ferramenta **PowerShell** e mais formas de git (`-C`, `-c`, `restore`, `stash`, `worktree`, `update-ref`, `branch -f/-D`).
+- Planejador, Início, resumo e revisor rodam o Claude **sem ferramentas**.
+- Prévia com acesso de leitura liberado só para a pasta da página e iframe sem same-origin; atualizações só com assinatura válida.
 
-### Security
-- Orchestrator writes: outbox pre-allowed; agent worktrees, `.git/` and the event log denied.
-- Checks run on a clean checkout of the committed branch, without `ANTHROPIC_*` variables, and cannot hang on inherited pipes.
-- Terminal notices are user-triggered and contain no digits; integration only merges done agents.
+## Fases anteriores (antes da 0.1.0)
 
-### Changed
-- The orchestrator starts in Claude Code's default permission mode; its only file writes are proposals in `.ina/outbox/` (Edit and git write commands stay denied).
-- Main README is now in Portuguese (`README.md`); English moved to `README.en.md`.
+### Fase 4 — pendências
 
-### Fixed
-- Agent timeout no longer kills a session whose task already finished or is being verified.
-- A verification error marks the task failed instead of leaving it stuck in `verifying`.
-- Prerequisites are not merged into a worktree while another session of that agent is running.
-- Outbox messages are restored to the outbox if storing them fails (no silent loss).
-- Message length limit counts characters, not bytes (accented text was rejected early).
+- Tarefas sem sessão finalizadas pelo tick; evento de mudança leva as tarefas; pré-requisitos vindos do backend; plano não aprovado volta à revisão depois de recarregar.
 
-## Phase 1 (MVP)
+### Fase 3 — arquitetura
 
-### Added
-- Tauri 2 + React + TypeScript app with real PTY terminals (ConPTY via portable-pty) and xterm.js.
-- Execution policy: program allowlist, argument and working-directory validation, `CLAUDE*` env stripping.
-- Workspaces stored in SQLite.
-- Team plan from natural language (`claude -p` with JSON schema), validation (ids, dependencies, cycles), review and approval screen.
-- N+1 real Claude Code sessions: orchestrator (no file edits or git writes) and one agent per worktree.
-- Read-only Claude Code folder-trust check with instructions when the folder is not trusted.
-- One git worktree and branch per agent; branch status, controlled merge in dependency order with abort on conflict, cleanup (with optional, double-confirmed removal of untracked files).
-- Teams persisted and resumable after restart; cleanup stops the team's sessions.
-- `.ina/` protocol (`task.json`, `result.json`, `events.jsonl`) and shared task registry with a task panel.
-- First-run check of Claude Code (installed, onboarded, logged in), language selector (pt-BR / English), maximize/restore terminal.
+- Tick no backend (a cada 5 s) avança as equipes mesmo sem painel aberto; painéis atualizam por evento; timeouts pelo tick; travas de merge por worktree; cache de equipes aprovadas.
+- Integração sempre exige agentes concluídos.
 
-### Security
-- Content Security Policy enabled; planner refuses untrusted folders; only session-specific `CLAUDE*` variables are stripped.
+### Fase 2 — orquestração confiável
 
-### Fixed
-- Sequential mode and dependencies are enforced: an agent starts only after its prerequisites are done.
-- Integration reports merges already done when a later merge fails for a non-conflict reason.
-- A blocking terminal write no longer freezes all sessions.
-- Duplicate dependencies no longer reported as a cycle; `.git/info/exclude` is never overwritten after a read error.
-- Orphaned `claude` process when a terminal remounted before its session was registered.
+- Recuperação ao iniciar; agendador por dependências com início automático e limite de 60 minutos; mensagens estruturadas (outbox/inbox com aprovação); verificação real dos resultados; prévia de integração com `git merge-tree`; `previousAttempt`; E2E com Playwright.
+- Orquestrador só grava propostas no outbox; verificações em checkout limpo sem variáveis `ANTHROPIC_*`.
+
+### Fase 1 — MVP
+
+- App Tauri 2 + React + TypeScript com terminais PTY reais (ConPTY) e xterm.js.
+- Política de execução (allowlist, validação de argumentos e pastas, limpeza de variáveis `CLAUDE*`); workspaces em SQLite.
+- Plano da equipe a partir de linguagem natural, revisão e aprovação; N+1 sessões reais do Claude Code; um git worktree e branch por agente; integração controlada e limpeza.
+- Protocolo `.ina/` (`task.json`, `result.json`, `events.jsonl`) e registro de tarefas; interface em pt-BR e inglês.

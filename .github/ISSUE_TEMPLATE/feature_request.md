@@ -1,11 +1,11 @@
 ---
-name: Feature request / Sugestão
-about: Propose an improvement / Proponha uma melhoria
+name: Sugerir uma ideia
+about: Uma melhoria ou recurso novo
 labels: enhancement
 ---
 
-**Problem / Problema**
+**Qual problema isso resolve**
 
-**Proposal / Proposta**
+**Como você imagina que funcione**
 
-**Alternatives / Alternativas**
+**Alternativas que você considerou**

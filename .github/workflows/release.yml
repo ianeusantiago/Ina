@@ -37,7 +37,13 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: INA ${{ github.ref_name }}
-          releaseBody: Instale com o arquivo -setup.exe. Quem já tem o INA recebe esta versão pelo aviso de atualização.
+          releaseBody: |
+            ## Como instalar
+            1. Baixe o arquivo **-setup.exe** abaixo e instale.
+            2. Se o Windows mostrar “O Windows protegeu o computador”: **Mais informações → Executar assim mesmo**.
+            3. Precisa do Claude Code com login feito e do Git.
+
+            Quem já tem o INA recebe esta versão pelo aviso **Atualizar e reiniciar**. Novidades em [CHANGELOG.md](https://github.com/ianeusantiago/Ina/blob/main/CHANGELOG.md).
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true

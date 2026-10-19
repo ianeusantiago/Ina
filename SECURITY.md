@@ -1,28 +1,59 @@
-# Security / Segurança
+# Segurança
 
-## Reporting / Como reportar
+## Como reportar
 
-Please do not open a public issue for vulnerabilities. Use GitHub's private vulnerability reporting ("Report a vulnerability" in the Security tab) on this repository.
+Não abra issue pública para vulnerabilidades. Use o **reporte privado** do GitHub: aba **Security → Report a vulnerability** deste repositório.
 
-Não abra issue pública para vulnerabilidades. Use o reporte privado do GitHub ("Report a vulnerability" na aba Security) deste repositório.
+## Modelo
 
-## Model / Modelo
+O INA abre processos de verdade no seu computador, então o backend (Rust) é a única autoridade sobre eles.
 
-INA starts real processes on your machine, so the backend (Rust) is the only authority over them:
+**Processos e comandos**
 
-- **Program allowlist:** only `claude`, `powershell` and `git`, resolved from `PATH` by the backend. The frontend never names a program.
-- **Trusted folders only:** the planner and every session refuse to start in a folder Claude Code has not trusted (project settings and hooks would otherwise load).
-- **No shell interpolation:** arguments are passed as a vector; their count and size are limited and NUL bytes are rejected.
-- **Workspace boundary:** every working directory is canonicalized and must be inside the workspace.
-- **Prompts from approved plans only:** agent and orchestrator prompts are built in the backend from the plan the user approved and INA stored, never sent by the frontend.
-- **Orchestrator limits:** it starts in Claude Code's default permission mode with `Edit`, `NotebookEdit` and git merge/rebase/reset/commit/push/cherry-pick/checkout/switch/restore/stash/worktree/update-ref, `branch -f/-D` and the `-C`/`-c` global options denied in both the Bash and PowerShell tools. Its only file writes are proposals in `.ina/outbox/` (pre-allowed; the specific allow wins over the `Edit` deny), and writes to agent worktrees, `.git/` and `.ina/events.jsonl` are denied (path rules checked with `claude -p`); INA delivers proposals to an agent only after you approve each one. Integration happens only through INA after user confirmation.
-- **Verification commands:** come from the plan you approve, are limited to `cargo`, `node`, `python` and `pytest` (resolved `.exe` only; `.cmd` shims such as npm are refused), run without a shell, with validated args, on a throwaway checkout of the agent's committed branch, with a 10-minute limit and without `ANTHROPIC_*` variables. They run code the agent wrote (tests, build scripts): approving a check means trusting that code to run as you.
-- **Messages:** outbox files are size-limited and schema-validated, with the sender's allowed types and known recipients enforced; invalid files are moved to `rejected/`. INA types into an agent's terminal only when you click "Notify terminal", and only one fixed line without digits or message text, so it cannot answer a permission prompt by itself.
-- **Secrets:** Session variables of the parent Claude Code (`CLAUDECODE`, session ids, tokens, sockets) are removed from child processes; user configuration such as `CLAUDE_CONFIG_DIR` is kept. INA reads `~/.claude.json` only for presence flags (trusted folder, onboarding, logged in) and never writes it or returns account data to the UI.
-- **No data loss by default:** cleanup refuses dirty worktrees and unmerged branches. Deleting untracked files requires a second explicit confirmation and is refused unless the branch is merged and no tracked file is modified.
-- **Agent results are untrusted input:** `result.json` is size-limited and schema-validated; an invalid file never counts as success.
-- **Content Security Policy:** scripts only from the app itself; IPC only to Tauri.
+- **Allowlist de programas:** só `claude`, `codex`, `powershell` e `git`, resolvidos no `PATH` pelo backend. A interface nunca escolhe programa.
+- **Sem interpolação de shell:** argumentos vão como lista; quantidade e tamanho são limitados e bytes NUL são recusados.
+- **Limite do workspace:** toda pasta de trabalho é canonizada e precisa estar dentro do workspace.
+- **Só pastas confiáveis:** planejador e sessões não começam numa pasta que o Claude Code ainda não confia (senão configurações e hooks do projeto seriam carregados).
+- **Prompts só de planos aprovados:** os prompts do orquestrador e dos agentes são montados no backend a partir do plano que você aprovou e o INA salvou; nunca vêm da interface.
 
-Known limits (Phase 1):
-- Agents run Claude Code with its normal permissions inside their worktree; INA does not sandbox them beyond that.
-- The orchestrator's deny list is a guardrail, not a sandbox: prefix rules like `Bash(git merge:*)` can still be bypassed by other command forms (aliases, scripts, shell redirection). The orchestrator still runs in the workspace root, so review what it does in its terminal.
+**Orquestrador**
+
+- Roda no modo de permissão padrão do Claude Code com `Edit`, `NotebookEdit` e os comandos git merge/rebase/reset/commit/push/cherry-pick/checkout/switch/restore/stash/worktree/update-ref, `branch -f/-D` e as opções globais `-C`/`-c` **bloqueados no Bash e no PowerShell**.
+- Só pode gravar propostas em `.ina/outbox/`; gravações nos worktrees dos agentes, em `.git/` e em `.ina/events.jsonl` são negadas (regras conferidas com `claude -p`). Propostas só chegam a um agente depois que você aprova cada uma. A integração acontece só pelo INA, com sua confirmação.
+
+**Claude sem ferramentas**
+
+- Planejador, tela Início (`home_intent`), resumo final (`team_report`) e revisor (`team_review`) rodam `claude -p` com `--tools ""` e `--strict-mcp-config`: só leem o que o INA manda e respondem num JSON validado por schema.
+- O revisor recebe o diff de cada agente limitado a ~20 mil caracteres (limite da linha de comando do Windows) e avisa quando corta.
+
+**Verificação**
+
+- Comandos de verificação vêm do plano que você aprova e se limitam a `cargo`, `node`, `python` e `pytest` (só `.exe`; atalhos `.cmd` como o npm são recusados).
+- Rodam sem shell, com argumentos validados, num checkout descartável da branch do agente, com limite de 10 minutos e sem variáveis `ANTHROPIC_*`. Eles executam código escrito pelo agente: aprovar uma verificação é confiar nesse código.
+
+**Interface e terminais**
+
+- **Permissões pela Interface:** o INA lê o menu de permissão na tela do terminal e, **só quando você clica**, digita a tecla da opção escolhida. Nada é respondido sozinho.
+- **Mensagens:** arquivos do outbox têm tamanho limitado e schema validado, com tipos e destinatários permitidos; inválidos vão para `rejected/`. O aviso no terminal de um agente é uma linha fixa, sem dígitos nem texto da mensagem, para não responder a um prompt de permissão.
+- **Leitura de conversas:** só sessões abertas pelo INA (id conhecido); nenhum caminho vem da interface.
+
+**Arquivos e pastas**
+
+- **Workspaces criados pela tela Início** ficam só em `%USERPROFILE%\INA Projects\<nome>`; o nome é validado (sem `..`, barras, nomes reservados do Windows) e pastas já com arquivos são recusadas.
+- **Seletor de pasta:** só a permissão de abrir pasta (`dialog:allow-open`); o caminho escolhido passa pela mesma validação de workspace.
+- **Prévia do projeto:** o acesso de leitura é liberado em tempo de execução **só para a pasta da página** (`index.html`) do workspace aberto; o iframe usa sandbox **sem `allow-same-origin`**, então a página não alcança o INA. Endereços digitados precisam ser `localhost` ou `127.0.0.1`.
+- **Sem perda de dados:** limpeza recusa worktrees com mudanças e branches não integradas. Apagar arquivos não rastreados exige uma segunda confirmação e só vale com a branch integrada. **Arquivar** uma equipe só a esconde; worktrees e branches ficam no disco.
+- **Resultados dos agentes não são confiáveis:** `result.json` tem tamanho limitado e schema validado; arquivo inválido nunca conta como sucesso.
+
+**Segredos e atualizações**
+
+- Variáveis de sessão do Claude Code pai (`CLAUDECODE`, ids de sessão, tokens, sockets) são removidas dos processos filhos. O INA lê `~/.claude.json` só para indicadores (pasta confiável, onboarding, logado), nunca escreve e nunca devolve dados da conta à interface.
+- **Atualizações assinadas:** o app só instala versões com assinatura válida (minisign). A chave pública está no `tauri.conf.json`; a privada fica fora do repositório (nos secrets do GitHub, para o workflow de release).
+- **Content Security Policy:** scripts só do próprio app; IPC só com o Tauri; frames só do protocolo de arquivos do app e de `localhost`.
+
+## Limites conhecidos
+
+- Os agentes rodam o Claude Code com as permissões normais dentro do worktree deles; o INA não os isola além disso.
+- A lista de bloqueios do orquestrador é uma proteção, não um sandbox: regras por prefixo como `Bash(git merge:*)` ainda podem ser contornadas por outras formas de comando (aliases, scripts, redirecionamento). O orquestrador roda na raiz do workspace; confira o que ele faz no terminal.
+- A detecção de permissões lê a tela do terminal: uma mudança no visual do Claude Code pode fazer o cartão não aparecer (o terminal continua funcionando normalmente).
+- O instalador não tem certificado de assinatura de código; o Windows mostra um aviso na primeira instalação.

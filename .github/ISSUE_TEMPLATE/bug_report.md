@@ -1,19 +1,20 @@
 ---
-name: Bug report / Relatar bug
-about: Something does not work / Algo não funciona
+name: Relatar um problema
+about: Algo não funciona como deveria
 labels: bug
 ---
 
-**What happened / O que aconteceu**
+**O que aconteceu**
 
-**Expected / Esperado**
+**O que você esperava**
 
-**Steps / Passos**
-1.
+**Como reproduzir** 1. 2. 3.
 
-**Environment / Ambiente**
-- Windows version:
-- INA commit:
-- `claude --version`:
+**Ambiente**
 
-**Logs** (remove secrets / remova segredos)
+- Versão do INA (canto do instalador ou Releases):
+- Windows:
+- Versão do Claude Code (`claude --version`):
+
+**Prints ou mensagens de erro**
+<!-- Não cole tokens, chaves ou dados pessoais. -->
