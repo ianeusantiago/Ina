@@ -40,7 +40,10 @@
     "approve": "Approve and open {{count}} sessions",
     "orchestrator": "Orchestrator",
     "cli": "CLI",
-    "clis": { "claude": "Claude Code", "codex": "Codex" },
+    "clis": {
+      "claude": "Claude Code",
+      "codex": "Codex"
+    },
     "scope": "Scope",
     "dependsOn": "Depends on",
     "mode": {
@@ -155,5 +158,18 @@
     "notifyHint": "Types one fixed line into the agent's terminal asking it to read .ina/inbox/. Use it when the agent is not showing a permission prompt.",
     "notified": "Notice sent to the terminal.",
     "notOpen": "The agent's terminal is not open; the message waits in its inbox."
+  },
+  "usage": {
+    "title": "Plan usage",
+    "session": "Session",
+    "weekly": "Weekly",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "hours_one": "{{count}} h",
+    "hours_other": "{{count}} h",
+    "resets": "Resets {{when}}",
+    "claudeEmpty": "Shown after an INA Claude session replies",
+    "unavailable": "Unavailable",
+    "loading": "Loading…"
   }
 }

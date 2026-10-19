@@ -6,6 +6,7 @@ mod setup;
 mod store;
 mod tasks;
 mod trust;
+mod usage;
 mod verify;
 mod worktree;
 
@@ -664,6 +665,14 @@ async fn pty_spawn_agent(
         let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
         (agent.cli.program(), vec![prompt], wt.path.clone())
     };
+    let mut args = args;
+    if program == Program::Claude {
+        // Status line that records plan usage for the footer (usage.rs).
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        if let Some(s) = usage::claude_settings(&exe, &claude_usage_file(&app)?) {
+            args.extend(["--settings".to_string(), s]);
+        }
+    }
     let mut spec = policy::authorize(program, args, &root, &cwd, pty.count(), &path_var)
         .map_err(|e| e.to_string())?;
     spec.cols = cols.max(1);
@@ -1314,6 +1323,45 @@ fn pty_kill(pty: State<'_, PtyManager>, id: String) -> Result<(), String> {
     pty.kill(&id).map_err(|e| e.to_string())
 }
 
+pub const USAGE_SINK_FLAG: &str = usage::SINK_FLAG;
+
+pub fn usage_sink(file: &std::path::Path) {
+    usage::run_sink(file)
+}
+
+fn claude_usage_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join(usage::CLAUDE_FILE))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageReport {
+    /// Last limits a Claude session started by INA reported; `None` before the first one.
+    claude: Option<usage::Usage>,
+    codex: Result<usage::Usage, String>,
+}
+
+/// Plan usage (session and weekly windows) for Claude Code and Codex.
+#[tauri::command]
+async fn usage_read(app: tauri::AppHandle) -> Result<UsageReport, String> {
+    let file = claude_usage_file(&app)?;
+    blocking(move || {
+        let path_var = std::env::var_os("PATH").unwrap_or_default();
+        let codex = policy::resolve_program(Program::Codex, &path_var)
+            .map_err(|e| e.to_string())
+            .and_then(|exe| usage::read_codex(&exe));
+        Ok(UsageReport {
+            claude: usage::read_claude(&file),
+            codex,
+        })
+    })
+    .await
+}
+
 /// First-run check of the Claude Code CLI (installed, onboarded, logged in).
 #[tauri::command]
 async fn claude_setup() -> Result<setup::ClaudeSetup, String> {
@@ -1534,6 +1582,7 @@ pub fn run() {
             team_list,
             team_tasks,
             claude_setup,
+            usage_read,
             team_messages,
             team_send,
             message_decide,
