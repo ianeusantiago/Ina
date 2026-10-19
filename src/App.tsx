@@ -5,6 +5,7 @@ import { Sidebar, type Focus } from "./components/Sidebar";
 import { setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
 import { Home } from "./components/Home";
+import { useTeamNotifications } from "./lib/notify";
 import type { PlanDraft } from "./lib/team";
 import { TitleBar } from "./components/TitleBar";
 import { UsageBar } from "./components/UsageBar";
@@ -32,6 +33,8 @@ export default function App() {
       .then(setWorkspaces)
       .catch((e: unknown) => setError(String(e)));
   }, []);
+
+  useTeamNotifications(workspaces);
 
   const selected = workspaces.find((w) => w.id === selectedId) ?? null;
 

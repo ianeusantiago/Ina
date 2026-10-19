@@ -20,6 +20,9 @@ import {
 import { IntegrationBar } from "./IntegrationBar";
 import { InterfaceView, type Member } from "./InterfaceView";
 import { ReadyBanner } from "./ReadyBanner";
+import { TeamProgress } from "./TeamProgress";
+import { PreviewView } from "./PreviewView";
+import { notify } from "../lib/notify";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { TerminalPane, type PendingPermission } from "./TerminalPane";
@@ -37,9 +40,9 @@ const parseAutoStart = (v: string | null) => v !== "off";
 
 const SPLIT_KEY = "ina.teamSplit";
 const VIEW_KEY = "ina.view";
-const VIEWS = ["interface", "terminals"] as const;
+const VIEWS = ["interface", "terminals", "preview"] as const;
 const parseView = (v: string | null): (typeof VIEWS)[number] =>
-  v === "terminals" ? "terminals" : "interface";
+  v === "terminals" ? "terminals" : v === "preview" ? "preview" : "interface";
 const SPLIT_MIN = 10;
 const SPLIT_MAX = 70;
 
@@ -172,7 +175,9 @@ function TeamRun({
   draft,
   resumed,
   focusAgent,
+  workspaceId,
 }: {
+  workspaceId: number;
   draft: PlanDraft;
   resumed: boolean;
   /** Member picked in the sidebar (the orchestrator if none). */
@@ -195,16 +200,31 @@ function TeamRun({
   const cell = (agentId: string) => (maxId !== null && maxId !== agentId ? "hidden" : "min-h-0");
   const toggle = (agentId: string) => () => setMaxId((cur) => (cur === agentId ? null : agentId));
   const [mode, changeMode] = usePersistedState(VIEW_KEY, parseView);
+  const [merged, setMerged] = usePersistedState(
+    `ina.merged.${id}`,
+    (v) => v === "1",
+    (v) => (v ? "1" : ""),
+  );
   const [permissions, setPermissions] = useState<Record<string, PendingPermission>>({});
-  const onPermission = useCallback((agentId: string, pending: PendingPermission | null) => {
-    setPermissions((all) => {
-      if (!pending) {
-        if (!(agentId in all)) return all;
-        return Object.fromEntries(Object.entries(all).filter(([id]) => id !== agentId));
+  const onPermission = useCallback(
+    (agentId: string, pending: PendingPermission | null) => {
+      if (pending && !document.hasFocus()) {
+        const name =
+          agentId === ORCHESTRATOR_ID
+            ? t("team.orchestrator")
+            : (p.agents.find((a) => a.id === agentId)?.name ?? agentId);
+        void notify(t("notify.permission.title", { name }), t("notify.permission.body"));
       }
-      return { ...all, [agentId]: pending };
-    });
-  }, []);
+      setPermissions((all) => {
+        if (!pending) {
+          if (!(agentId in all)) return all;
+          return Object.fromEntries(Object.entries(all).filter(([id]) => id !== agentId));
+        }
+        return { ...all, [agentId]: pending };
+      });
+    },
+    [t, p.agents],
+  );
   // Picking a member in the sidebar means talking to it: show the Interface.
   const [seenFocus, setSeenFocus] = useState<string | null>(null);
   if (focusAgent !== seenFocus) {
@@ -273,7 +293,8 @@ function TeamRun({
   ];
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <ReadyBanner planId={id} tasks={tasks} />
+      <TeamProgress tasks={tasks} agents={p.agents.length} merged={merged} />
+      <ReadyBanner planId={id} tasks={tasks} onMerged={() => setMerged(true)} />
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <IntegrationBar planId={id} />
@@ -297,6 +318,7 @@ function TeamRun({
         </div>
       </div>
       {/* Both views stay mounted: switching keeps the selected member, drafts and sessions. */}
+      {mode === "preview" && <PreviewView workspaceId={workspaceId} />}
       <div className={`min-h-0 flex-1 ${mode === "interface" ? "" : "hidden"}`}>
         <InterfaceView
           planId={id}
@@ -310,7 +332,7 @@ function TeamRun({
       {/* Hidden, not unmounted: the interface reads sessions that keep running here. */}
       <div
         ref={view}
-        className={`flex min-h-0 flex-1 flex-col gap-1 ${mode === "interface" ? "hidden" : ""}`}
+        className={`flex min-h-0 flex-1 flex-col gap-1 ${mode === "terminals" ? "" : "hidden"}`}
       >
         <div
           className="grid min-h-0 shrink-0 grid-cols-2 gap-2 overflow-hidden"
@@ -458,6 +480,7 @@ export function TeamPanel({
         draft={stage.draft}
         resumed={stage.resumed}
         focusAgent={focus?.planId === stage.draft.id ? focus.agentId : null}
+        workspaceId={workspaceId}
       />
     );
   }

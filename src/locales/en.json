@@ -182,7 +182,8 @@
     "view": "View",
     "views": {
       "interface": "Interface",
-      "terminals": "Terminals"
+      "terminals": "Terminals",
+      "preview": "Preview"
     },
     "members": "Team members",
     "notStarted": "Not started.",
@@ -264,5 +265,46 @@
     "confirmAll_other": "Archive {{count}} finished teams? They leave the list; their work stays in git.",
     "yes": "Archive",
     "no": "Cancel"
+  },
+  "progress": {
+    "label": "Team progress",
+    "assembled": "Team assembled",
+    "working": "Working ({{done}}/{{total}})",
+    "verified": "All verified",
+    "merged": "Merged into project",
+    "problem": "Something needs you"
+  },
+  "notify": {
+    "done": {
+      "title": "{{name}} finished",
+      "body": "The work is done and verified. Open INA to see it."
+    },
+    "failed": {
+      "title": "{{name}} could not finish",
+      "body": "Something went wrong. Open INA to see what happened."
+    },
+    "blocked": {
+      "title": "{{name}} is blocked",
+      "body": "The agent needs something to continue. Open INA."
+    },
+    "permission": {
+      "title": "{{name}} asks for your permission",
+      "body": "Open INA to allow or deny."
+    }
+  },
+  "report": {
+    "homeTitle": "The team “{{name}}” finished!",
+    "howToTest": "How to try it",
+    "writing": "Writing a summary of what was done…",
+    "unavailable": "Could not write the summary right now."
+  },
+  "preview": {
+    "title": "Project preview",
+    "none": "No page (index.html) found in the project. If the app runs on a local server, paste its address below.",
+    "url": "Local address (e.g. http://localhost:5173)",
+    "open": "Open",
+    "reload": "Reload",
+    "file": "Project page",
+    "hint": "Shows the project as it is now (after merging the agents' work)."
   }
 }

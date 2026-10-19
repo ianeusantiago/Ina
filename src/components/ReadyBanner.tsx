@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { teamReport, type Report } from "../lib/report";
 import { useTranslation } from "react-i18next";
 import {
   teamCleanup,
@@ -21,7 +22,16 @@ type Step =
  * Guided finish: once every agent is done, offer to look at what will change and merge it all
  * into the project in one click, then tidy up. Each step still needs the user's click.
  */
-export function ReadyBanner({ planId, tasks }: { planId: number; tasks: TaskView[] }) {
+export function ReadyBanner({
+  planId,
+  tasks,
+  onMerged,
+}: {
+  planId: number;
+  tasks: TaskView[];
+  /** Everything merged without problems. */
+  onMerged: () => void;
+}) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>({ kind: "ask" });
   const [busy, setBusy] = useState(false);
@@ -32,6 +42,18 @@ export function ReadyBanner({ planId, tasks }: { planId: number; tasks: TaskView
     (v) => (v ? "done" : ""),
   );
   const allDone = tasks.length > 0 && tasks.every((x) => x.status === "done");
+  const [report, setReport] = useState<Report | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!allDone || finished) return;
+    let alive = true;
+    teamReport(planId)
+      .then((r) => alive && setReport(r))
+      .catch((e: unknown) => alive && setReportError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, [allDone, finished, planId]);
   if (!allDone || finished) return null;
 
   const act = async (action: () => Promise<void>) => {
@@ -75,6 +97,18 @@ export function ReadyBanner({ planId, tasks }: { planId: number; tasks: TaskView
           {step.kind === "merged" &&
             (step.problems.length === 0 ? t("ready.cleanupHint") : step.problems.join(" · "))}
         </p>
+        {step.kind === "ask" &&
+          (report ? (
+            <div className="mt-1.5 flex flex-col gap-1.5 text-[12.5px] text-fg">
+              <p className="whitespace-pre-wrap">{report.done}</p>
+              <p className="text-[11px] font-semibold text-muted">{t("report.howToTest")}</p>
+              <p className="whitespace-pre-wrap">{report.howToTest}</p>
+            </div>
+          ) : reportError ? (
+            <p className="text-[11px] text-muted">{t("report.unavailable")}</p>
+          ) : (
+            <p className="text-[11px] text-muted">{t("report.writing")}</p>
+          ))}
         {error && <p className={`text-xs ${errorText}`}>{error}</p>}
       </div>
       <div className="flex gap-2">
@@ -116,6 +150,7 @@ export function ReadyBanner({ planId, tasks }: { planId: number; tasks: TaskView
                         : [],
                   );
                   setStep({ kind: "merged", problems });
+                  if (problems.length === 0) onMerged();
                 })
               }
             >

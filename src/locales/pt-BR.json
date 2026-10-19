@@ -182,7 +182,8 @@
     "view": "Visualização",
     "views": {
       "interface": "Interface",
-      "terminals": "Terminais"
+      "terminals": "Terminais",
+      "preview": "Prévia"
     },
     "members": "Membros da equipe",
     "notStarted": "Não iniciado.",
@@ -264,5 +265,46 @@
     "confirmAll_other": "Arquivar {{count}} equipes concluídas? Elas somem da lista; o trabalho fica guardado no git.",
     "yes": "Arquivar",
     "no": "Cancelar"
+  },
+  "progress": {
+    "label": "Progresso da equipe",
+    "assembled": "Equipe montada",
+    "working": "Trabalhando ({{done}}/{{total}})",
+    "verified": "Tudo verificado",
+    "merged": "Juntado no projeto",
+    "problem": "Algo precisa de você"
+  },
+  "notify": {
+    "done": {
+      "title": "{{name}} terminou",
+      "body": "O trabalho foi concluído e verificado. Abra o INA para ver."
+    },
+    "failed": {
+      "title": "{{name}} não conseguiu terminar",
+      "body": "Algo deu errado. Abra o INA para ver o que aconteceu."
+    },
+    "blocked": {
+      "title": "{{name}} está travado",
+      "body": "O agente precisa de algo para continuar. Abra o INA."
+    },
+    "permission": {
+      "title": "{{name}} pede sua permissão",
+      "body": "Abra o INA para permitir ou negar."
+    }
+  },
+  "report": {
+    "homeTitle": "A equipe “{{name}}” terminou!",
+    "howToTest": "Como testar",
+    "writing": "Escrevendo um resumo do que foi feito…",
+    "unavailable": "Não deu para escrever o resumo agora."
+  },
+  "preview": {
+    "title": "Prévia do projeto",
+    "none": "Não encontrei uma página (index.html) no projeto. Se o app roda num servidor local, cole o endereço abaixo.",
+    "url": "Endereço local (ex.: http://localhost:5173)",
+    "open": "Abrir",
+    "reload": "Recarregar",
+    "file": "Página do projeto",
+    "hint": "Mostra o projeto como ele está agora (depois de juntar o trabalho dos agentes)."
   }
 }
