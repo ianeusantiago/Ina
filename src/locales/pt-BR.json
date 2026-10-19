@@ -33,7 +33,9 @@
     "expand": "Mostrar equipes de {{name}}",
     "collapse": "Ocultar equipes de {{name}}",
     "noTeams": "Nenhuma equipe ainda",
-    "filter": "Filtrar workspaces e equipes"
+    "filter": "Filtrar workspaces e equipes",
+    "pick": "Escolher pasta…",
+    "pickTitle": "Escolha a pasta do workspace"
   },
   "team": {
     "title": "Equipe",

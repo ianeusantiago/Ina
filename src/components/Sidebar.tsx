@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type { Workspace } from "../lib/workspaces";
 import {
@@ -10,7 +11,7 @@ import {
 } from "../lib/team";
 import { TEAMS_CHANGED, usePolled } from "../lib/usePolled";
 import { useTeamTasks } from "./TaskPanel";
-import { field, primaryButton } from "./ui";
+import { field, ghostButton, primaryButton } from "./ui";
 
 /** A team member opened from the sidebar. */
 export interface Focus {
@@ -425,6 +426,19 @@ export function Sidebar({
             {t("workspaces.add")}
           </button>
         </div>
+        <button
+          type="button"
+          className={`mt-1.5 w-full text-xs ${ghostButton}`}
+          onClick={() =>
+            void openDialog({ directory: true, title: t("workspaces.pickTitle") })
+              .then((dir) => {
+                if (typeof dir === "string") onAdd(dir);
+              })
+              .catch((e: unknown) => console.error("[dialog]", e))
+          }
+        >
+          {t("workspaces.pick")}
+        </button>
         {error && (
           <p className="mt-1.5 text-xs text-danger" role="alert">
             {error}

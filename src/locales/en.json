@@ -33,7 +33,9 @@
     "expand": "Show teams of {{name}}",
     "collapse": "Hide teams of {{name}}",
     "noTeams": "No teams yet",
-    "filter": "Filter workspaces and teams"
+    "filter": "Filter workspaces and teams",
+    "pick": "Choose folder…",
+    "pickTitle": "Choose the workspace folder"
   },
   "team": {
     "title": "Team",
