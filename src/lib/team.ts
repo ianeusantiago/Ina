@@ -84,6 +84,8 @@ export const teamPreview = (planId: number) =>
   invoke<IntegrationPreview>("team_preview", { planId });
 export const teamIntegrate = (planId: number) =>
   invoke<IntegrateStep[]>("team_integrate", { planId });
+/** Hides a team (stops its sessions); its worktrees and branches stay on disk. */
+export const archiveTeam = (planId: number) => invoke<null>("team_archive", { planId });
 export const teamCleanup = (planId: number, discardUntracked = false) =>
   invoke<CleanupResult[]>("team_cleanup", { planId, discardUntracked });
 

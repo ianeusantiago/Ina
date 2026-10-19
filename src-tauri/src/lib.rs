@@ -544,6 +544,25 @@ struct CleanupResult {
 /// Stop the team's sessions, then remove agent worktrees and merged branches. Git refuses
 /// dirty worktrees and unmerged branches, so no work is lost. When everything is removed the
 /// team is closed.
+/// Hides a team from INA: stops its sessions and closes it. Worktrees and branches stay on disk
+/// (nothing is deleted), so its work can still be merged or inspected with git.
+#[tauri::command]
+fn team_archive(
+    pty: State<'_, PtyManager>,
+    store: State<'_, Store>,
+    plans: State<'_, PlanStore>,
+    plan_id: u64,
+) -> Result<(), String> {
+    for id in plans.take_sessions(plan_id) {
+        if pty.is_running(&id)
+            && let Err(e) = pty.kill(&id)
+        {
+            eprintln!("archive: kill {id} failed: {e}");
+        }
+    }
+    plans.close(&store, plan_id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn team_cleanup(
     pty: State<'_, PtyManager>,
@@ -1698,6 +1717,7 @@ fn recover_lost_tasks(store: &Store, plans: &PlanStore) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PtyManager::default())
         .manage(PlanStore::default())
@@ -1733,6 +1753,7 @@ pub fn run() {
             team_status,
             team_integrate,
             team_cleanup,
+            team_archive,
             team_list,
             team_tasks,
             claude_setup,

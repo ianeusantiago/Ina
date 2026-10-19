@@ -32,7 +32,10 @@
     "selectHint": "Selecione ou adicione um workspace para abrir um terminal.",
     "expand": "Mostrar equipes de {{name}}",
     "collapse": "Ocultar equipes de {{name}}",
-    "noTeams": "Nenhuma equipe ainda"
+    "noTeams": "Nenhuma equipe ainda",
+    "filter": "Filtrar workspaces e equipes",
+    "pick": "Escolher pasta…",
+    "pickTitle": "Escolha a pasta do workspace"
   },
   "team": {
     "title": "Equipe",
@@ -225,5 +228,41 @@
     "trust": "O Claude Code ainda não confia na pasta dos projetos do INA. Abra um terminal, rode o comando abaixo uma vez e aceite a confiança. Depois volte aqui.",
     "trustRetry": "Já confiei, continuar",
     "newConversation": "Nova conversa"
+  },
+  "permission": {
+    "title": "{{name}} pede sua permissão",
+    "allow": "Permitir",
+    "always": "Permitir sempre nesta sessão",
+    "deny": "Negar",
+    "details": "Ver detalhes"
+  },
+  "ready": {
+    "title": "Pronto! Todos os agentes terminaram.",
+    "hint": "Quer juntar o trabalho deles no seu projeto?",
+    "look": "Ver o que vai mudar",
+    "noPreview": "Não deu para simular antes, mas dá para juntar mesmo assim.",
+    "clean": "Tudo se encaixa, sem conflitos. Pode juntar com segurança.",
+    "conflicts_one": "{{count}} agente tem mudanças que batem com as de outro. Juntando, ele fica para você resolver no terminal.",
+    "conflicts_other": "{{count}} agentes têm mudanças que batem com as de outros. Juntando, eles ficam para você resolver no terminal.",
+    "notNow": "Agora não",
+    "merge": "Juntar no projeto",
+    "merged": "Trabalho juntado no projeto!",
+    "mergedWithProblems": "Juntei o que deu; algumas partes precisam de você.",
+    "conflictIn": "{{agent}}: conflito, veja no terminal",
+    "failedIn": "{{agent}}: não deu para juntar",
+    "cleanupHint": "Os espaços temporários dos agentes podem ser apagados agora.",
+    "cleanup": "Limpar espaços temporários",
+    "cleaned": "Tudo pronto e organizado.",
+    "close": "Fechar"
+  },
+  "archive": {
+    "one": "Arquivar {{name}}",
+    "all_one": "Arquivar a equipe concluída",
+    "all_other": "Arquivar {{count}} equipes concluídas",
+    "confirmOne": "Arquivar esta equipe? Ela some da lista; o trabalho fica guardado no git.",
+    "confirmAll_one": "Arquivar a equipe concluída? Ela some da lista; o trabalho fica guardado no git.",
+    "confirmAll_other": "Arquivar {{count}} equipes concluídas? Elas somem da lista; o trabalho fica guardado no git.",
+    "yes": "Arquivar",
+    "no": "Cancelar"
   }
 }

@@ -19,9 +19,10 @@ import {
 } from "../lib/team";
 import { IntegrationBar } from "./IntegrationBar";
 import { InterfaceView, type Member } from "./InterfaceView";
+import { ReadyBanner } from "./ReadyBanner";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
-import { TerminalPane } from "./TerminalPane";
+import { TerminalPane, type PendingPermission } from "./TerminalPane";
 
 type Stage =
   | { kind: "request" }
@@ -106,9 +107,11 @@ function AgentTerminal({
   status,
   maximized,
   onToggleMaximize,
+  onPermission,
 }: {
   planId: number;
   agentId: string;
+  onPermission: (agentId: string, pending: PendingPermission | null) => void;
   title: string;
   subtitle: string;
   maximized: boolean;
@@ -124,6 +127,10 @@ function AgentTerminal({
   const spawn = useMemo<Spawner>(
     () => (id, cols, rows, onEvent) => spawnAgent(planId, agentId, id, cols, rows, onEvent),
     [planId, agentId],
+  );
+  const permission = useCallback(
+    (pending: PendingPermission | null) => onPermission(agentId, pending),
+    [onPermission, agentId],
   );
   if (!open) {
     return (
@@ -150,6 +157,7 @@ function AgentTerminal({
       title={title}
       subtitle={subtitle}
       spawn={spawn}
+      onPermission={permission}
       actions={
         <button className={ghostButton} onClick={onToggleMaximize}>
           {t(maximized ? "terminal.restore" : "terminal.maximize")}
@@ -187,6 +195,16 @@ function TeamRun({
   const cell = (agentId: string) => (maxId !== null && maxId !== agentId ? "hidden" : "min-h-0");
   const toggle = (agentId: string) => () => setMaxId((cur) => (cur === agentId ? null : agentId));
   const [mode, changeMode] = usePersistedState(VIEW_KEY, parseView);
+  const [permissions, setPermissions] = useState<Record<string, PendingPermission>>({});
+  const onPermission = useCallback((agentId: string, pending: PendingPermission | null) => {
+    setPermissions((all) => {
+      if (!pending) {
+        if (!(agentId in all)) return all;
+        return Object.fromEntries(Object.entries(all).filter(([id]) => id !== agentId));
+      }
+      return { ...all, [agentId]: pending };
+    });
+  }, []);
   // Picking a member in the sidebar means talking to it: show the Interface.
   const [seenFocus, setSeenFocus] = useState<string | null>(null);
   if (focusAgent !== seenFocus) {
@@ -238,6 +256,7 @@ function TeamRun({
       task: p.summary,
       cli: "claude",
       open: opened.has(ORCHESTRATOR_ID),
+      permission: permissions[ORCHESTRATOR_ID],
       waitingFor: [],
     },
     ...p.agents.map((a) => ({
@@ -247,12 +266,14 @@ function TeamRun({
       task: a.task,
       cli: a.cli,
       open: opened.has(a.id),
+      permission: permissions[a.id],
       status: status.get(a.id),
       waitingFor: waiting(a.id),
     })),
   ];
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
+      <ReadyBanner planId={id} tasks={tasks} />
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <IntegrationBar planId={id} />
@@ -323,6 +344,7 @@ function TeamRun({
               waitingFor={[]}
               maximized={maxId === ORCHESTRATOR_ID}
               onToggleMaximize={toggle(ORCHESTRATOR_ID)}
+              onPermission={onPermission}
             />
           </div>
           {p.agents.map((a) => {
@@ -339,6 +361,7 @@ function TeamRun({
                   status={status.get(a.id)}
                   maximized={maxId === a.id}
                   onToggleMaximize={toggle(a.id)}
+                  onPermission={onPermission}
                 />
               </div>
             );
