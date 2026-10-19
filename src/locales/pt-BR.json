@@ -39,6 +39,8 @@
     "planning": "Planejando…",
     "approve": "Aprovar e abrir {{count}} sessões",
     "orchestrator": "Orquestrador",
+    "cli": "CLI",
+    "clis": { "claude": "Claude Code", "codex": "Codex" },
     "scope": "Escopo",
     "dependsOn": "Depende de",
     "mode": {

@@ -237,6 +237,19 @@ impl Store {
             .ok_or(StoreError::TeamNotFound(id))
     }
 
+    /// Replace the plan of a team still awaiting approval.
+    pub fn set_pending_plan(&self, id: i64, plan: &str) -> Result<(), StoreError> {
+        let n = self.conn()?.execute(
+            "UPDATE teams SET plan = ?2 WHERE id = ?1 AND worktrees IS NULL",
+            params![id, plan],
+        )?;
+        if n == 0 {
+            self.get_team(id)?;
+            return Err(StoreError::TeamAlreadyApproved(id));
+        }
+        Ok(())
+    }
+
     /// Atomically record approval; fails if the team was approved already.
     pub fn approve_team(&self, id: i64, worktrees: &str) -> Result<(), StoreError> {
         let n = self.conn()?.execute(

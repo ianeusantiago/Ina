@@ -513,7 +513,11 @@ async fn plan_approve(
     store: State<'_, Store>,
     plans: State<'_, PlanStore>,
     plan_id: u64,
+    clis: HashMap<String, plan::AgentCli>,
 ) -> Result<(), String> {
+    plans
+        .set_clis(&store, plan_id, &clis)
+        .map_err(|e| e.to_string())?;
     let (workspace_id, plan) = plans.pending(&store, plan_id).map_err(|e| e.to_string())?;
     let git = git_for(&store, workspace_id)?;
     // Run id: unique per approval and across restarts, so branch names never collide.
@@ -597,9 +601,13 @@ async fn pty_spawn_agent(
     let reg = registry(&store, &root, plan_id, &team.plan)?;
     let is_agent = agent_id != plan::ORCHESTRATOR_ID;
     // Orchestrator works in the workspace root; each agent in its own worktree.
-    let (args, cwd) = if !is_agent {
+    let (program, args, cwd) = if !is_agent {
         let prompt = plan::orchestrator_prompt(&team.plan, &team.worktrees);
-        (plan::orchestrator_args(prompt), root.clone())
+        (
+            Program::Claude,
+            plan::orchestrator_args(prompt),
+            root.clone(),
+        )
     } else {
         let agent = team.plan.agent(&agent_id).map_err(|e| e.to_string())?;
         let wt = team
@@ -654,9 +662,9 @@ async fn pty_spawn_agent(
         )
         .map_err(|e| e.to_string())?;
         let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
-        (vec![prompt], wt.path.clone())
+        (agent.cli.program(), vec![prompt], wt.path.clone())
     };
-    let mut spec = policy::authorize(Program::Claude, args, &root, &cwd, pty.count(), &path_var)
+    let mut spec = policy::authorize(program, args, &root, &cwd, pty.count(), &path_var)
         .map_err(|e| e.to_string())?;
     spec.cols = cols.max(1);
     spec.rows = rows.max(1);
