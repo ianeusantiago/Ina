@@ -22,6 +22,7 @@ import { InterfaceView, type Member } from "./InterfaceView";
 import { ReadyBanner } from "./ReadyBanner";
 import { TeamProgress } from "./TeamProgress";
 import { PreviewView } from "./PreviewView";
+import { TemplateChips } from "./Templates";
 import { notify } from "../lib/notify";
 import { MessagePanel } from "./MessagePanel";
 import { TaskPanel, useTeamTasks } from "./TaskPanel";
@@ -513,6 +514,7 @@ export function TeamPanel({
             ))}
           </div>
         )}
+        <TemplateChips where="team" disabled={stage.kind === "planning"} onPick={setRequest} />
         <label className="flex flex-col gap-1 text-xs text-muted">
           {t("team.requestLabel")}
           <textarea

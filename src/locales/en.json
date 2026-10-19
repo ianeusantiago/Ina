@@ -212,8 +212,6 @@
     "nav": "Home",
     "title": "What are we building today?",
     "hint": "Ask in a few words. I create the workspace, set up the team with an orchestrator and agents, and get it ready to start.",
-    "example1": "Create a workspace called Shop and build a product page with 2 agents",
-    "example2": "Create a To-do List project with one agent for the app and one for tests",
     "placeholder": "E.g.: create a workspace called Blog and build a site with 3 agents…",
     "inputLabel": "Message to INA",
     "send": "Send",
@@ -306,5 +304,28 @@
     "reload": "Reload",
     "file": "Project page",
     "hint": "Shows the project as it is now (after merging the agents' work)."
+  },
+  "templates": {
+    "label": "Team templates",
+    "site": {
+      "name": "🌐 Website",
+      "team": "Build a simple, good-looking website with a home page, an About page and a Contact page that works on phones. Use 2 agents: one for the design and pages, one to check links, text and automated tests.",
+      "home": "Create a workspace called My Site and build a simple, good-looking website with Home, About and Contact pages that works on phones. Use 2 agents: one for design and pages, one to check links and tests."
+    },
+    "api": {
+      "name": "🔌 API + tests",
+      "team": "Build a small API to create, list, edit and delete items, with data validation. Use 2 agents: one for the API, one for the automated tests that prove it all works.",
+      "home": "Create a workspace called My API and build a small API to create, list, edit and delete items. Use 2 agents: one for the API and one for the automated tests."
+    },
+    "bug": {
+      "name": "🐞 Fix a bug",
+      "team": "Fix this problem: [describe what happens and what should happen]. Use 2 agents: one to find and fix the cause, one to write a test proving it does not come back.",
+      "home": "Create a workspace called Fix and fix this problem: [describe what happens]. Use 2 agents: one to fix it and one to write a test proving the fix."
+    },
+    "refactor": {
+      "name": "✨ Clean up code",
+      "team": "Make this project's code simpler and better organized without changing what it does. Use 2 agents: one to reorganize and clean up, one to make sure with tests that everything still works the same.",
+      "home": "Create a workspace called Cleanup and make the code simpler and better organized without changing what it does. Use 2 agents: one to clean up and one to make sure with tests that everything still works."
+    }
   }
 }

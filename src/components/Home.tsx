@@ -7,6 +7,7 @@ import { TEAMS_CHANGED } from "../lib/usePolled";
 import type { Workspace } from "../lib/workspaces";
 import { addHomeItem, newHomeConversation, setHome, useHome } from "../lib/homeStore";
 import { Bubble } from "./InterfaceView";
+import { TemplateChips } from "./Templates";
 import { errorText, field, ghostButton, primaryButton } from "./ui";
 
 /** Home: talk to Claude; it can create a workspace and set up a team for a request. */
@@ -99,17 +100,6 @@ export function Home({
               <img src={inaIcon} alt="" className="size-20 drop-shadow-lg" />
               <p className="text-[24px] font-semibold tracking-tight text-fg">{t("home.title")}</p>
               <p className="max-w-md text-[13px] text-muted">{t("home.hint")}</p>
-              <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {[t("home.example1"), t("home.example2")].map((ex) => (
-                  <button
-                    key={ex}
-                    className={`aero-card px-3 py-1.5 text-[12px] text-fg-2 ${ghostButton}`}
-                    onClick={() => setDraft(ex)}
-                  >
-                    {ex}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           {items.map((it, i) =>
@@ -173,8 +163,10 @@ export function Home({
           )}
         </div>
       </div>
-      {items.length > 0 && (
-        <div className="mx-auto flex w-full max-w-2xl justify-end px-6 pb-2">
+      <div className="mx-auto flex w-full max-w-2xl items-center gap-2 px-6 pb-2">
+        <TemplateChips where="home" onPick={setDraft} disabled={busy !== null} />
+        <span className="flex-1" />
+        {items.length > 0 && (
           <button
             className={`text-xs ${ghostButton}`}
             disabled={busy !== null}
@@ -182,8 +174,8 @@ export function Home({
           >
             {t("home.newConversation")}
           </button>
-        </div>
-      )}
+        )}
+      </div>
       <form onSubmit={send} className="px-6 pb-5">
         <div className={`aero-card mx-auto flex max-w-2xl items-end gap-2 p-2 ${field}`}>
           <textarea

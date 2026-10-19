@@ -212,8 +212,6 @@
     "nav": "Início",
     "title": "O que vamos construir hoje?",
     "hint": "Peça em poucas palavras. Eu crio o workspace, monto a equipe com orquestrador e agentes e deixo tudo pronto para começar.",
-    "example1": "Crie um workspace chamado Loja e faça uma página de produtos com 2 agentes",
-    "example2": "Crie um projeto Lista de Tarefas com um agente para o app e outro para os testes",
     "placeholder": "Ex.: crie um workspace chamado Blog e faça um site com 3 agentes…",
     "inputLabel": "Mensagem para o INA",
     "send": "Enviar",
@@ -306,5 +304,28 @@
     "reload": "Recarregar",
     "file": "Página do projeto",
     "hint": "Mostra o projeto como ele está agora (depois de juntar o trabalho dos agentes)."
+  },
+  "templates": {
+    "label": "Modelos de equipe",
+    "site": {
+      "name": "🌐 Site",
+      "team": "Crie um site simples e bonito com página inicial, página Sobre e página de Contato, que funcione no celular. Use 2 agentes: um para o visual e as páginas, outro para conferir links, textos e testes automáticos.",
+      "home": "Crie um workspace chamado Meu Site e faça um site simples e bonito com página inicial, Sobre e Contato, que funcione no celular. Use 2 agentes: um para o visual e as páginas, outro para conferir links e testes."
+    },
+    "api": {
+      "name": "🔌 API + testes",
+      "team": "Crie uma pequena API com cadastro, listagem, edição e exclusão de itens, com validação dos dados. Use 2 agentes: um para a API, outro para os testes automáticos que provam que tudo funciona.",
+      "home": "Crie um workspace chamado Minha API e faça uma pequena API com cadastro, listagem, edição e exclusão de itens. Use 2 agentes: um para a API e outro para os testes automáticos."
+    },
+    "bug": {
+      "name": "🐞 Corrigir bug",
+      "team": "Corrija este problema: [descreva aqui o que acontece e o que deveria acontecer]. Use 2 agentes: um para achar e corrigir a causa, outro para escrever um teste que prove que o problema não volta.",
+      "home": "Crie um workspace chamado Correção e corrija este problema: [descreva aqui o que acontece]. Use 2 agentes: um para corrigir e outro para escrever um teste que prove a correção."
+    },
+    "refactor": {
+      "name": "✨ Melhorar código",
+      "team": "Deixe o código deste projeto mais simples e organizado, sem mudar o que ele faz. Use 2 agentes: um para reorganizar e limpar, outro para garantir com testes que tudo continua funcionando igual.",
+      "home": "Crie um workspace chamado Organização e deixe o código mais simples e organizado, sem mudar o que ele faz. Use 2 agentes: um para limpar e outro para garantir com testes que tudo continua igual."
+    }
   }
 }
