@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ghostButton, field, primaryButton } from "./ui";
 import { usePersistedState } from "../lib/usePersistedState";
+import { TEAMS_CHANGED } from "../lib/usePolled";
 import { spawnAgent, spawnShell, type Spawner } from "../lib/pty";
 import {
   type TaskStatus,
@@ -159,7 +160,16 @@ function AgentTerminal({
 }
 
 /** An approved team: integration, task registry and one terminal per session. */
-function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
+function TeamRun({
+  draft,
+  resumed,
+  focusAgent,
+}: {
+  draft: PlanDraft;
+  resumed: boolean;
+  /** Member picked in the sidebar (the orchestrator if none). */
+  focusAgent: string | null;
+}) {
   const { t } = useTranslation();
   const { id, plan: p } = draft;
   const { tasks, error, refresh } = useTeamTasks(id);
@@ -177,6 +187,12 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
   const cell = (agentId: string) => (maxId !== null && maxId !== agentId ? "hidden" : "min-h-0");
   const toggle = (agentId: string) => () => setMaxId((cur) => (cur === agentId ? null : agentId));
   const [mode, changeMode] = usePersistedState(VIEW_KEY, parseView);
+  // Picking a member in the sidebar means talking to it: show the Interface.
+  const [seenFocus, setSeenFocus] = useState<string | null>(null);
+  if (focusAgent !== seenFocus) {
+    setSeenFocus(focusAgent);
+    if (focusAgent !== null) changeMode("interface");
+  }
   // Resumed teams open sessions on demand, so the task is not re-sent unasked.
   const [opened, setOpened] = useState<ReadonlySet<string>>(
     () =>
@@ -264,6 +280,7 @@ function TeamRun({ draft, resumed }: { draft: PlanDraft; resumed: boolean }) {
         <InterfaceView
           planId={id}
           members={members}
+          selected={focusAgent ?? ORCHESTRATOR_ID}
           visible={mode === "interface"}
           onOpen={openSession}
           onShowTerminals={() => changeMode("terminals")}
@@ -337,12 +354,15 @@ export function TeamPanel({
   workspaceName,
   workspacePath,
   started,
+  focus,
 }: {
   workspaceId: number;
   workspaceName: string;
   workspacePath: string;
   /** Team approved elsewhere (Home): open it with its sessions starting now. */
   started?: PlanDraft;
+  /** Team member picked in the sidebar: opens its team. */
+  focus: { planId: number; agentId: string } | null;
 }) {
   const { t } = useTranslation();
   const [request, setRequest] = useState("");
@@ -354,13 +374,17 @@ export function TeamPanel({
   const [openTeams, setOpenTeams] = useState<PlanDraft[]>([]);
 
   useEffect(() => {
-    listTeams(workspaceId)
-      .then(setOpenTeams)
-      .catch((e: unknown) => setError(String(e)));
+    const loadTeams = () =>
+      listTeams(workspaceId)
+        .then(setOpenTeams)
+        .catch((e: unknown) => setError(String(e)));
+    void loadTeams();
+    window.addEventListener(TEAMS_CHANGED, loadTeams);
     // A plan generated before the window reloaded is shown again for review.
     planDraft(workspaceId)
       .then((d) => d && setStage((s) => (s.kind === "request" ? { kind: "review", draft: d } : s)))
       .catch((e: unknown) => setError(String(e)));
+    return () => window.removeEventListener(TEAMS_CHANGED, loadTeams);
   }, [workspaceId]);
   const shell = useMemo<Spawner>(
     () => (id, cols, rows, onEvent) => spawnShell(workspaceId, id, cols, rows, onEvent),
@@ -386,6 +410,7 @@ export function TeamPanel({
       setUntrusted(!trusted);
       if (!trusted) return;
       await approvePlan(draft.id, Object.fromEntries(draft.plan.agents.map((a) => [a.id, a.cli])));
+      window.dispatchEvent(new Event(TEAMS_CHANGED));
       setStage({ kind: "running", draft, resumed: false });
     } catch (e) {
       setError(String(e));
@@ -397,8 +422,21 @@ export function TeamPanel({
     setStage({ kind: "review", draft: { ...draft, plan: { ...draft.plan, agents } } });
   };
 
+  // A member picked in the sidebar opens its team (sessions on demand).
+  const focused = focus && openTeams.find((d) => d.id === focus.planId);
+  if (focused && (stage.kind !== "running" || stage.draft.id !== focused.id)) {
+    setStage({ kind: "running", draft: focused, resumed: true });
+  }
+
   if (stage.kind === "running") {
-    return <TeamRun draft={stage.draft} resumed={stage.resumed} />;
+    return (
+      <TeamRun
+        key={stage.draft.id}
+        draft={stage.draft}
+        resumed={stage.resumed}
+        focusAgent={focus?.planId === stage.draft.id ? focus.agentId : null}
+      />
+    );
   }
 
   return (

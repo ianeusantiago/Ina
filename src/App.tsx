@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SetupBanner } from "./components/SetupBanner";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type Focus } from "./components/Sidebar";
 import { setLanguage } from "./i18n";
 import { TeamPanel } from "./components/TeamPanel";
 import { Home } from "./components/Home";
@@ -16,6 +16,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState<PlanDraft | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
 
   const run = useCallback(async (action: () => Promise<void>) => {
     try {
@@ -49,9 +50,18 @@ export default function App() {
           error={error}
           onSelect={(id) => {
             setStarted(null);
+            setFocus(null);
             setSelectedId(id);
           }}
-          onHome={() => setSelectedId(null)}
+          onHome={() => {
+            setFocus(null);
+            setSelectedId(null);
+          }}
+          focus={focus}
+          onFocus={(f) => {
+            setFocus(f);
+            setSelectedId(f.workspaceId);
+          }}
           onAdd={(path) =>
             void run(async () => {
               const w = await addWorkspace(path);
@@ -64,6 +74,7 @@ export default function App() {
               await removeWorkspace(id);
               setWorkspaces(await listWorkspaces());
               if (id === selectedId) setSelectedId(null);
+              if (id === focus?.workspaceId) setFocus(null);
             })
           }
         />
@@ -75,6 +86,7 @@ export default function App() {
               workspaceName={selected.name}
               workspacePath={selected.path}
               started={started ?? undefined}
+              focus={focus?.workspaceId === selected.id ? focus : null}
             />
           ) : (
             <Home

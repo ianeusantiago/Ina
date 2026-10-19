@@ -29,7 +29,10 @@
     "addLabel": "Add folder path",
     "add": "Add",
     "remove": "Remove {{name}}",
-    "selectHint": "Select or add a workspace to open a terminal."
+    "selectHint": "Select or add a workspace to open a terminal.",
+    "expand": "Show teams of {{name}}",
+    "collapse": "Hide teams of {{name}}",
+    "noTeams": "No teams yet"
   },
   "team": {
     "title": "Team",

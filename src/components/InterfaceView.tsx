@@ -37,14 +37,6 @@ interface Pending {
 
 const NONE: Pending[] = [];
 
-const STATUS_DOT: Partial<Record<TaskStatus, string>> = {
-  running: "bg-[#34c759] shadow-[0_0_6px_#34c759]",
-  verifying: "bg-[#0a8fe0] shadow-[0_0_6px_#0a8fe0]",
-  done: "bg-[#2a9d3a]",
-  failed: "bg-danger",
-  blocked: "bg-warning",
-};
-
 /**
  * Chat-like mask over the team: each member's conversation, read from its CLI's session log,
  * and a message box that types into its terminal. Stays mounted while the terminals view is
@@ -53,18 +45,19 @@ const STATUS_DOT: Partial<Record<TaskStatus, string>> = {
 export function InterfaceView({
   planId,
   members,
+  selected,
   visible,
   onOpen,
   onShowTerminals,
 }: {
   planId: number;
   members: Member[];
+  /** Member picked in the sidebar. */
+  selected: string;
   visible: boolean;
   onOpen: (id: string) => void;
   onShowTerminals: () => void;
 }) {
-  const { t } = useTranslation();
-  const [selected, setSelected] = useState(members[0]?.id ?? "");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Record<string, Pending[]>>({});
   // Stable, and a no-op update keeps the same state (no re-render loop).
@@ -80,39 +73,6 @@ export function InterfaceView({
   const member = members.find((m) => m.id === selected) ?? members[0];
   return (
     <div className="flex h-full min-h-0 gap-2">
-      <nav
-        aria-label={t("activity.members")}
-        className="aero-glass flex w-56 shrink-0 flex-col gap-1 overflow-y-auto rounded-2xl p-2"
-      >
-        {members.map((m) => {
-          const active = m.id === member?.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => setSelected(m.id)}
-              aria-current={active}
-              className={`flex flex-col items-start gap-0.5 px-3 py-2 text-left transition ${
-                active ? "aero-btn aero-square" : "rounded-[10px] hover:bg-hover"
-              }`}
-            >
-              <span className="relative flex w-full items-center gap-2 text-[13px] font-semibold">
-                <span
-                  className={`size-2 shrink-0 rounded-full ${
-                    (m.status && STATUS_DOT[m.status]) ??
-                    (m.open ? STATUS_DOT.running : "bg-muted/50")
-                  }`}
-                />
-                <span className="truncate">{m.name}</span>
-              </span>
-              <span
-                className={`relative w-full truncate text-[11px] ${active ? "text-white/85" : "text-muted"}`}
-              >
-                {t(`team.clis.${m.cli}`)} · {m.status ? t(`tasks.status.${m.status}`) : m.subtitle}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
       {member && (
         <Chat
           key={member.id}

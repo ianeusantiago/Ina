@@ -32,8 +32,9 @@ test("plan, approve, verify and preview integration", async ({ app }) => {
   await expect(app.getByText(/Failed to start session/)).toHaveCount(0);
 
   // The interface summarizes what the agent's Claude Code session did.
-  await app.getByRole("radio", { name: "Interface" }).click();
-  await app.getByRole("navigation", { name: "Team members" }).getByRole("button").nth(1).click();
+  // Members are listed under the workspace in the sidebar (newest team first, open).
+  await app.locator("aside li li ul").first().getByRole("button").nth(1).click();
+  await expect(app.getByRole("radio", { name: "Interface" })).toBeChecked();
   // The agent's reply from its Claude Code session shows as a chat bubble.
   await expect(app.locator('[data-role="agent"]').first()).toBeVisible({ timeout: 15_000 });
   // Typing in the interface reaches the agent, and its answer comes back here.

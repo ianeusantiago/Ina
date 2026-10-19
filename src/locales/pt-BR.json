@@ -29,7 +29,10 @@
     "addLabel": "Adicionar caminho da pasta",
     "add": "Adicionar",
     "remove": "Remover {{name}}",
-    "selectHint": "Selecione ou adicione um workspace para abrir um terminal."
+    "selectHint": "Selecione ou adicione um workspace para abrir um terminal.",
+    "expand": "Mostrar equipes de {{name}}",
+    "collapse": "Ocultar equipes de {{name}}",
+    "noTeams": "Nenhuma equipe ainda"
   },
   "team": {
     "title": "Equipe",
