@@ -1,6 +1,6 @@
 [package]
 name = "ina"
-version = "0.1.0"
+version = "0.1.1"
 description = "Orchestrates a team of Claude Code agents in real terminals"
 authors = ["Ian Santiago"]
 license = "MIT"
