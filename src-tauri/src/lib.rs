@@ -1,4 +1,5 @@
 mod activity;
+mod claude_json;
 mod home;
 mod messages;
 mod plan;
@@ -73,7 +74,7 @@ fn pty_spawn_shell(
 ) -> Result<(), String> {
     valid_id(&id)?;
     let root = workspace_root(&store, workspace_id)?;
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     let mut spec = policy::authorize(
         Program::Shell,
         vec!["-NoLogo".into()],
@@ -144,7 +145,7 @@ async fn plan_generate(
     if !folder_trusted(&root)? {
         return Err(trust::NOT_TRUSTED.into());
     }
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     // Session count 0: the planner is a short-lived child, not a PTY session.
     let spec = policy::authorize(
         Program::Claude,
@@ -200,6 +201,10 @@ fn registry<'a>(
     })
 }
 
+/// Limits for one-shot `claude -p` answers (Home, report) and the slower reviewer.
+const ASSIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+const REVIEW_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// An agent that runs longer than this is stopped and its task failed.
 const AGENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
@@ -218,10 +223,7 @@ fn workspace_trusted(store: State<'_, Store>, workspace_id: i64) -> Result<bool,
 }
 
 fn home_dir() -> Result<PathBuf, String> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-        .ok_or_else(|| "no home directory".into())
+    policy::home_dir().ok_or_else(|| "no home directory".into())
 }
 
 /// The folder new workspaces go in, created on demand.
@@ -257,7 +259,7 @@ async fn home_intent(request: String) -> Result<home::Intent, String> {
         return Err("request is empty or too long".into());
     }
     let base = home_base()?;
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     let spec = policy::authorize(
         Program::Claude,
         home::intent_args(&request),
@@ -267,23 +269,14 @@ async fn home_intent(request: String) -> Result<home::Intent, String> {
         &path_var,
     )
     .map_err(|e| e.to_string())?;
-    blocking(move || {
-        let mut child = pty::piped_command(&spec)
-            .spawn()
-            .map_err(|e| format!("spawn: {e}"))?;
-        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(180))
-            .map_err(|e| e.to_string())?;
-        status.ok_or("timed out")?;
-        home::parse_output(&String::from_utf8_lossy(&output.stdout))
-    })
-    .await
+    blocking(move || claude_json::run(&spec, ASSIST_TIMEOUT).and_then(home::validate)).await
 }
 
 /// New workspace `<base>/<name>` as a git repo with one commit, added to INA.
 #[tauri::command]
 async fn workspace_create(store: State<'_, Store>, name: String) -> Result<Workspace, String> {
     let base = home_base()?;
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
     let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
     let dir = blocking(move || {
@@ -301,13 +294,12 @@ async fn workspace_create(store: State<'_, Store>, name: String) -> Result<Works
 fn git_for(store: &Store, workspace_id: i64) -> Result<worktree::Git, String> {
     let root = workspace_root(store, workspace_id)?;
     let root = policy::simplify(root.canonicalize().map_err(|e| e.to_string())?);
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
     let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
     Ok(worktree::Git::new(exe, root, env_remove))
 }
 
-/// Approved team plus its git runner, with agents in dependency order.
 /// A team's git runner, its worktrees in dependency order, and the team itself.
 type TeamGit = (worktree::Git, Vec<(String, worktree::Worktree)>, plan::Team);
 
@@ -763,7 +755,7 @@ async fn team_review(
     if !folder_trusted(&root)? {
         return Err(trust::NOT_TRUSTED.into());
     }
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     blocking(move || {
         let mut diffs = Vec::new();
         for (id, wt) in &ordered {
@@ -790,13 +782,7 @@ async fn team_review(
             &path_var,
         )
         .map_err(|e| e.to_string())?;
-        let mut child = pty::piped_command(&spec)
-            .spawn()
-            .map_err(|e| format!("spawn: {e}"))?;
-        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(300))
-            .map_err(|e| e.to_string())?;
-        status.ok_or("timed out")?;
-        let mut r = review::parse_output(&String::from_utf8_lossy(&output.stdout))?;
+        let mut r = claude_json::run(&spec, REVIEW_TIMEOUT).and_then(review::validate)?;
         r.truncated = truncated;
         Ok(r)
     })
@@ -854,7 +840,7 @@ async fn pty_spawn_agent(
     if !folder_trusted(&root)? {
         return Err(trust::NOT_TRUSTED.into());
     }
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     let reg = registry(&store, &root, plan_id, &team.plan)?;
     let is_agent = agent_id != plan::ORCHESTRATOR_ID;
     // Orchestrator works in the workspace root; each agent in its own worktree.
@@ -1571,7 +1557,7 @@ async fn team_report(
         })
         .collect();
     let prompt = report::prompt(&team.plan.summary, &parts);
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = policy::path_var();
     let spec = policy::authorize(
         Program::Claude,
         report::args(&prompt),
@@ -1581,16 +1567,7 @@ async fn team_report(
         &path_var,
     )
     .map_err(|e| e.to_string())?;
-    blocking(move || {
-        let mut child = pty::piped_command(&spec)
-            .spawn()
-            .map_err(|e| format!("spawn: {e}"))?;
-        let (status, output) = pty::wait_output(&mut child, std::time::Duration::from_secs(180))
-            .map_err(|e| e.to_string())?;
-        status.ok_or("timed out")?;
-        report::parse_output(&String::from_utf8_lossy(&output.stdout))
-    })
-    .await
+    blocking(move || claude_json::run(&spec, ASSIST_TIMEOUT).and_then(report::validate)).await
 }
 
 /// Where a static site's `index.html` usually lives in a project.
@@ -1773,7 +1750,7 @@ struct UsageReport {
 async fn usage_read(app: tauri::AppHandle) -> Result<UsageReport, String> {
     let file = claude_usage_file(&app)?;
     blocking(move || {
-        let path_var = std::env::var_os("PATH").unwrap_or_default();
+        let path_var = policy::path_var();
         let codex = policy::resolve_program(Program::Codex, &path_var)
             .map_err(|e| e.to_string())
             .and_then(|exe| usage::read_codex(&exe));

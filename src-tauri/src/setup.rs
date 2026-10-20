@@ -60,7 +60,7 @@ fn version(program: &Path) -> Result<String, String> {
 }
 
 pub fn check() -> ClaudeSetup {
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = crate::policy::path_var();
     let mut s = ClaudeSetup::default();
     let program = match policy::resolve_program(Program::Claude, &path_var) {
         Ok(p) => p,

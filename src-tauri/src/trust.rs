@@ -25,9 +25,8 @@ pub fn config_path() -> Result<PathBuf, TrustError> {
     if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
         return Ok(PathBuf::from(dir).join(".claude.json"));
     }
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(|h| PathBuf::from(h).join(".claude.json"))
+    crate::policy::home_dir()
+        .map(|h| h.join(".claude.json"))
         .ok_or(TrustError::NoConfig)
 }
 

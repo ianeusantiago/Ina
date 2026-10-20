@@ -264,9 +264,7 @@ pub fn claude_project_dir(cwd: &Path) -> String {
 }
 
 fn home() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
+    crate::policy::home_dir()
 }
 
 fn config_dir(var: &str, default: &str) -> Option<PathBuf> {

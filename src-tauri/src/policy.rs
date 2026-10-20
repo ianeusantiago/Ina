@@ -123,6 +123,18 @@ fn is_session_var(k: &str) -> bool {
                 .any(|w| k.contains(w)))
 }
 
+/// The `PATH` programs are resolved from (empty if unset).
+pub fn path_var() -> std::ffi::OsString {
+    std::env::var_os("PATH").unwrap_or_default()
+}
+
+/// The user's home folder (`USERPROFILE` on Windows, `HOME` elsewhere).
+pub fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+}
+
 pub fn validate_args(args: &[String]) -> Result<(), PolicyError> {
     if args.len() > MAX_ARGS {
         return Err(PolicyError::BadArg(format!(
