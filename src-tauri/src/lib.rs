@@ -196,7 +196,7 @@ fn registry<'a>(
     Ok(Registry {
         store,
         root,
-        team: i64::try_from(plan_id).map_err(|e| e.to_string())?,
+        team: db_id(plan_id)?,
         plan,
     })
 }
@@ -536,9 +536,19 @@ struct CleanupResult {
     error: Option<String>,
 }
 
-/// Stop the team's sessions, then remove agent worktrees and merged branches. Git refuses
-/// dirty worktrees and unmerged branches, so no work is lost. When everything is removed the
-/// team is closed.
+/// Kills every live session of a team and returns their ids (forgotten by the plan store).
+fn stop_sessions(pty: &PtyManager, plans: &PlanStore, plan_id: u64) -> Vec<String> {
+    let sessions = plans.take_sessions(plan_id);
+    for id in &sessions {
+        if pty.is_running(id)
+            && let Err(e) = pty.kill(id)
+        {
+            eprintln!("team {plan_id}: kill {id} failed: {e}");
+        }
+    }
+    sessions
+}
+
 /// Hides a team from INA: stops its sessions and closes it. Worktrees and branches stay on disk
 /// (nothing is deleted), so its work can still be merged or inspected with git.
 #[tauri::command]
@@ -548,16 +558,13 @@ fn team_archive(
     plans: State<'_, PlanStore>,
     plan_id: u64,
 ) -> Result<(), String> {
-    for id in plans.take_sessions(plan_id) {
-        if pty.is_running(&id)
-            && let Err(e) = pty.kill(&id)
-        {
-            eprintln!("archive: kill {id} failed: {e}");
-        }
-    }
+    stop_sessions(&pty, &plans, plan_id);
     plans.close(&store, plan_id).map_err(|e| e.to_string())
 }
 
+/// Stop the team's sessions, then remove agent worktrees and merged branches. Git refuses
+/// dirty worktrees and unmerged branches, so no work is lost. When everything is removed the
+/// team is closed.
 #[tauri::command]
 async fn team_cleanup(
     pty: State<'_, PtyManager>,
@@ -568,14 +575,7 @@ async fn team_cleanup(
 ) -> Result<Vec<CleanupResult>, String> {
     let (git, team, _) = team_git(&store, &plans, plan_id)?;
     let _cleaning = plans.cleaning(plan_id);
-    let sessions = plans.take_sessions(plan_id);
-    for id in &sessions {
-        if pty.is_running(id)
-            && let Err(e) = pty.kill(id)
-        {
-            eprintln!("cleanup: kill {id} failed: {e}");
-        }
-    }
+    let sessions = stop_sessions(&pty, &plans, plan_id);
     // A killed process releases its cwd only once it has exited.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while sessions.iter().any(|id| pty.is_running(id)) && std::time::Instant::now() < deadline {
@@ -618,11 +618,11 @@ async fn plan_approve(
     let (workspace_id, plan) = plans.pending(&store, plan_id).map_err(|e| e.to_string())?;
     let git = git_for(&store, workspace_id)?;
     // Run id: unique per approval and across restarts, so branch names never collide.
-    let secs = std::time::SystemTime::now()
+    let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
-        .as_secs();
-    let run = format!("{secs:x}");
+        .as_millis();
+    let run = format!("{millis:x}");
     let ids: Vec<String> = plan.agents.iter().map(|a| a.id.clone()).collect();
     let (git, team) = blocking(move || {
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
@@ -630,7 +630,7 @@ async fn plan_approve(
         Ok((git, team))
     })
     .await?;
-    let team_id = to_team(plan_id)?;
+    let team_id = db_id(plan_id)?;
     for (agent, wt) in plan.agents.iter().zip(&team) {
         if let Err(e) = tasks::write_task(&wt.path, team_id, &plan, agent, &wt.branch, &[], None) {
             git.remove_team(&team);
@@ -654,7 +654,8 @@ async fn plan_approve(
         .map_err(|e| e.to_string())
 }
 
-fn to_team(plan_id: u64) -> Result<i64, String> {
+/// Plan ids are `u64` in the API and `i64` rows in SQLite.
+fn db_id(plan_id: u64) -> Result<i64, String> {
     i64::try_from(plan_id).map_err(|e| e.to_string())
 }
 
@@ -672,8 +673,13 @@ fn other_live_session(
         .any(|s| s != not && pty.is_running(s))
 }
 
-fn to_db_id(plan_id: u64) -> Result<i64, String> {
-    i64::try_from(plan_id).map_err(|e| e.to_string())
+/// Where a team member works: the orchestrator in the workspace root, an agent in its worktree.
+fn member_cwd(root: &std::path::Path, team: &plan::Team, member: &str) -> Option<PathBuf> {
+    if member == plan::ORCHESTRATOR_ID {
+        Some(root.to_path_buf())
+    } else {
+        team.worktrees.get(member).map(|wt| wt.path.clone())
+    }
 }
 
 /// The agent's last Claude session, if its log still exists (Claude agents and orchestrator).
@@ -691,16 +697,12 @@ fn resumable_session(
     if !is_claude {
         return Ok(None);
     }
-    let cwd = if agent_id == plan::ORCHESTRATOR_ID {
-        workspace_root(store, team.workspace_id)?
-    } else {
-        match team.worktrees.get(agent_id) {
-            Some(wt) => wt.path.clone(),
-            None => return Ok(None),
-        }
+    let root = workspace_root(store, team.workspace_id)?;
+    let Some(cwd) = member_cwd(&root, team, agent_id) else {
+        return Ok(None);
     };
     let sessions = store
-        .agent_sessions_of(to_db_id(plan_id)?)
+        .agent_sessions_of(db_id(plan_id)?)
         .map_err(|e| e.to_string())?;
     Ok(sessions
         .into_iter()
@@ -719,16 +721,12 @@ async fn team_usage(
     let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
     let root = workspace_root(&store, team.workspace_id)?;
     let sessions = store
-        .agent_sessions_of(to_db_id(plan_id)?)
+        .agent_sessions_of(db_id(plan_id)?)
         .map_err(|e| e.to_string())?;
     let logs: Vec<PathBuf> = sessions
         .iter()
         .filter_map(|(agent, sid)| {
-            let cwd = if agent == plan::ORCHESTRATOR_ID {
-                root.clone()
-            } else {
-                team.worktrees.get(agent)?.path.clone()
-            };
+            let cwd = member_cwd(&root, &team, agent)?;
             activity::find_log(plan::AgentCli::Claude, &cwd, Some(sid))
         })
         .collect();
@@ -844,95 +842,30 @@ async fn pty_spawn_agent(
     let reg = registry(&store, &root, plan_id, &team.plan)?;
     let is_agent = agent_id != plan::ORCHESTRATOR_ID;
     // Orchestrator works in the workspace root; each agent in its own worktree.
-    let (program, args, cwd) = if !is_agent {
+    let (program, args, cwd) = if is_agent {
+        prepare_agent(
+            &pty,
+            &store,
+            &plans,
+            &team,
+            &reg,
+            &agent_id,
+            resume_id.is_some(),
+        )
+        .await?
+    } else {
         let prompt = plan::orchestrator_prompt(&team.plan, &team.worktrees);
         (
             Program::Claude,
             plan::orchestrator_args(prompt),
             root.clone(),
         )
-    } else {
-        let agent = team.plan.agent(&agent_id).map_err(|e| e.to_string())?;
-        let wt = team
-            .worktrees
-            .get(&agent_id)
-            .ok_or("agent has no worktree")?;
-        let waiting: Vec<&str> = team
-            .plan
-            .prerequisites(&agent_id)
-            .into_iter()
-            .filter(|p| !matches!(reg.status(p), Ok(Some(TaskStatus::Done))))
-            .collect();
-        if !waiting.is_empty() {
-            return Err(format!("waiting for: {}", waiting.join(", ")));
-        }
-        // A finished task is being run again: set the old result aside and tell the agent how
-        // the previous run ended.
-        let row = reg.task(&agent_id).map_err(|e| e.to_string())?;
-        let previous = match row.filter(|_| resume_id.is_none()) {
-            Some(t) => {
-                let status = t.status;
-                let finished = !matches!(
-                    status,
-                    TaskStatus::Pending | TaskStatus::Running | TaskStatus::Verifying
-                );
-                finished.then_some(tasks::PreviousAttempt {
-                    status,
-                    summary: t.summary,
-                    detail: t.detail,
-                })
-            }
-            None => None,
-        };
-        let previous = if previous.is_some() {
-            tasks::archive_result(&wt.path).map_err(|e| e.to_string())?;
-            previous
-        } else {
-            // Same run reopened (e.g. a remounted terminal): keep what the first spawn recorded.
-            tasks::recorded_previous(&wt.path)
-        };
-        // Never merge under a live session of this agent: it may be editing that worktree.
-        let merge = !other_live_session(&pty, &plans, plan_id, &agent_id, "");
-        let prerequisites = merge_prerequisites(&store, &team, &agent_id, wt, merge).await?;
-        tasks::write_task(
-            &wt.path,
-            reg.team,
-            &team.plan,
-            agent,
-            &wt.branch,
-            &prerequisites,
-            previous.as_ref(),
-        )
-        .map_err(|e| e.to_string())?;
-        let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
-        (agent.cli.program(), vec![prompt], wt.path.clone())
     };
-    let mut args = args;
-    if program == Program::Claude {
-        // Status line that records plan usage for the footer (usage.rs).
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        if let Some(s) = usage::claude_settings(&exe, &claude_usage_file(&app)?) {
-            args.extend(["--settings".to_string(), s]);
-        }
-        // Known session id: the interface reads exactly this session's log. Resuming keeps the
-        // same id (and log) and drops the prompt: the task is already in that conversation.
-        let session_id = match &resume_id {
-            Some(sid) => {
-                args.remove(0);
-                args.extend(["--resume".to_string(), sid.clone()]);
-                sid.clone()
-            }
-            None => {
-                let sid = activity::new_session_id();
-                args.extend(["--session-id".to_string(), sid.clone()]);
-                sid
-            }
-        };
-        plans.set_log(plan_id, &agent_id, &session_id);
-        if let Err(e) = store.set_agent_session(to_db_id(plan_id)?, &agent_id, &session_id) {
-            eprintln!("session {agent_id}: not recorded: {e}");
-        }
-    }
+    let args = if program == Program::Claude {
+        claude_session_args(&app, &store, &plans, plan_id, &agent_id, args, resume_id)?
+    } else {
+        args
+    };
     let mut spec = policy::authorize(program, args, &root, &cwd, pty.count(), &path_var)
         .map_err(|e| e.to_string())?;
     spec.cols = cols.max(1);
@@ -985,6 +918,108 @@ async fn pty_spawn_agent(
     Ok(())
 }
 
+/// An agent's launch: its task written to `task.json` (prerequisites merged in first, the
+/// previous attempt recorded when it is run again) and its program, args and worktree.
+async fn prepare_agent(
+    pty: &PtyManager,
+    store: &Store,
+    plans: &PlanStore,
+    team: &plan::Team,
+    reg: &Registry<'_>,
+    agent_id: &str,
+    resuming: bool,
+) -> Result<(Program, Vec<String>, PathBuf), String> {
+    let agent = team.plan.agent(agent_id).map_err(|e| e.to_string())?;
+    let wt = team
+        .worktrees
+        .get(agent_id)
+        .ok_or("agent has no worktree")?;
+    let waiting: Vec<&str> = team
+        .plan
+        .prerequisites(agent_id)
+        .into_iter()
+        .filter(|p| !matches!(reg.status(p), Ok(Some(TaskStatus::Done))))
+        .collect();
+    if !waiting.is_empty() {
+        return Err(format!("waiting for: {}", waiting.join(", ")));
+    }
+    // A finished task is being run again: set the old result aside and tell the agent how
+    // the previous run ended.
+    let row = reg.task(agent_id).map_err(|e| e.to_string())?;
+    let previous = match row.filter(|_| !resuming) {
+        Some(t) => {
+            let status = t.status;
+            let finished = !matches!(
+                status,
+                TaskStatus::Pending | TaskStatus::Running | TaskStatus::Verifying
+            );
+            finished.then_some(tasks::PreviousAttempt {
+                status,
+                summary: t.summary,
+                detail: t.detail,
+            })
+        }
+        None => None,
+    };
+    let previous = if previous.is_some() {
+        tasks::archive_result(&wt.path).map_err(|e| e.to_string())?;
+        previous
+    } else {
+        // Same run reopened (e.g. a remounted terminal): keep what the first spawn recorded.
+        tasks::recorded_previous(&wt.path)
+    };
+    // Never merge under a live session of this agent: it may be editing that worktree.
+    let merge = !other_live_session(pty, plans, team.id, agent_id, "");
+    let prerequisites = merge_prerequisites(store, team, agent_id, wt, merge).await?;
+    tasks::write_task(
+        &wt.path,
+        reg.team,
+        &team.plan,
+        agent,
+        &wt.branch,
+        &prerequisites,
+        previous.as_ref(),
+    )
+    .map_err(|e| e.to_string())?;
+    let prompt = plan::agent_prompt(&team.plan, agent, &wt.branch);
+    Ok((agent.cli.program(), vec![prompt], wt.path.clone()))
+}
+
+/// Claude args every INA session gets: the usage status line and a known session id (so the
+/// Interface reads exactly this session's log). Resuming keeps the same id and drops the
+/// prompt: the task is already in that conversation.
+fn claude_session_args(
+    app: &tauri::AppHandle,
+    store: &Store,
+    plans: &PlanStore,
+    plan_id: u64,
+    agent_id: &str,
+    mut args: Vec<String>,
+    resume_id: Option<String>,
+) -> Result<Vec<String>, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if let Some(s) = usage::claude_settings(&exe, &claude_usage_file(app)?) {
+        args.extend(["--settings".to_string(), s]);
+    }
+    let session_id = match resume_id {
+        Some(sid) => {
+            args.remove(0);
+            args.extend(["--resume".to_string(), sid.clone()]);
+            sid
+        }
+        None => {
+            let sid = activity::new_session_id();
+            args.extend(["--session-id".to_string(), sid.clone()]);
+            sid
+        }
+    };
+    plans.set_log(plan_id, agent_id, &session_id);
+    if let Err(e) = store.set_agent_session(db_id(plan_id)?, agent_id, &session_id) {
+        eprintln!("session {agent_id}: not recorded: {e}");
+    }
+    Ok(args)
+}
+
 /// One lock per worktree path, for git operations that must not interleave in it.
 fn worktree_lock(dir: &std::path::Path) -> Result<Arc<Mutex<()>>, String> {
     static LOCKS: Mutex<Option<HashMap<PathBuf, Arc<Mutex<()>>>>> = Mutex::new(None);
@@ -1004,7 +1039,7 @@ async fn merge_prerequisites(
     wt: &worktree::Worktree,
     merge: bool,
 ) -> Result<Vec<tasks::Prerequisite>, String> {
-    let rows = store.tasks(to_team(team.id)?).map_err(|e| e.to_string())?;
+    let rows = store.tasks(db_id(team.id)?).map_err(|e| e.to_string())?;
     let prerequisites: Vec<tasks::Prerequisite> = team
         .plan
         .prerequisites(agent_id)
@@ -1458,7 +1493,7 @@ async fn team_send(
         }
         let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
         team.plan.agent(&to).map_err(|e| e.to_string())?;
-        let team_id = to_team(plan_id)?;
+        let team_id = db_id(plan_id)?;
         let id = store
             .insert_message(
                 team_id,
@@ -1494,7 +1529,7 @@ async fn message_decide(
     blocking(move || {
         let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
         let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-        let team_id = to_team(plan_id)?;
+        let team_id = db_id(plan_id)?;
         let msg = store
             .messages(team_id)
             .map_err(|e| e.to_string())?
@@ -2104,7 +2139,7 @@ mod tests {
         let legacy = plans.insert(&store, ws.id, &plan).unwrap();
         plans.approve(&store, legacy, &map).unwrap();
         recover_lost_tasks(&store, &plans).unwrap();
-        let rows = store.tasks(to_team(legacy).unwrap()).unwrap();
+        let rows = store.tasks(db_id(legacy).unwrap()).unwrap();
         assert_eq!(
             rows.iter()
                 .map(|t| (t.agent_id.as_str(), t.status.as_str()))
