@@ -4,6 +4,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versões s
 
 ## [Não lançado]
 
+## [0.1.1] — 2026-10-20
+
+Revisão de código e correções; primeira versão entregue pela atualização automática.
+
 ### Alterado
 
 - README, CONTRIBUTING, SECURITY, este histórico e os modelos de issue e PR em português e atualizados.
