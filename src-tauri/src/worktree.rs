@@ -359,12 +359,11 @@ impl Git {
             .any(|p| want.is_some() && Path::new(p).canonicalize().ok() == want))
     }
 
-    /// Remove a worktree (refused by git if it has uncommitted or untracked files) and delete
-    /// its branch only if it is merged (`-d`, never `-D`). Safe to retry after a partial run,
-    /// e.g. when a running session kept the directory locked.
-    /// Remove an agent worktree and its merged branch. With `discard_untracked`, untracked
-    /// files are deleted too, but only when the branch is fully merged into HEAD and no tracked
-    /// file is modified, so committed and modified work is never lost.
+    /// Remove an agent worktree (refused by git if it has uncommitted or untracked files) and
+    /// delete its branch only if it is merged (`-d`, never `-D`). With `discard_untracked`,
+    /// untracked files go too, but only when the branch is fully merged into HEAD and no tracked
+    /// file is modified, so committed and modified work is never lost. Safe to retry after a
+    /// partial run (e.g. a running session kept the directory locked).
     pub fn cleanup(&self, wt: &Worktree, discard_untracked: bool) -> Result<(), WorktreeError> {
         self.run(&["worktree", "prune"])?; // forget worktrees whose directory is gone
         if self.is_registered(wt)? {

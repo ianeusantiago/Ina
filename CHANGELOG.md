@@ -7,6 +7,19 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versões s
 ### Alterado
 
 - README, CONTRIBUTING, SECURITY, este histórico e os modelos de issue e PR em português e atualizados.
+- Revisão de código: chamadas ao Claude sem ferramentas num módulo único (`claude_json`); `PATH`, pasta do usuário e variáveis removidas dos processos filhos centralizadas no `policy`; `pty_spawn_agent` dividido em funções menores; `TeamPanel`, `Sidebar` e `ReadyBanner` divididos em componentes menores; controle segmentado único.
+
+### Corrigido
+
+- Enviar uma mensagem pela Interface travava a tela por 80 ms (pausa na thread da interface).
+- A busca por conversas para continuar rodava na thread da interface.
+- Duas aprovações no mesmo segundo podiam gerar o mesmo nome de branch.
+- O tick guardava para sempre dados de equipes já fechadas.
+- Um arrasto do divisor interrompido pelo sistema deixava listeners pendurados.
+
+### Acessibilidade
+
+- Seletores de tema e de vista são grupos de opções navegáveis pelas setas, Home e End.
 
 ## [0.1.0] — 2026-10-19
 

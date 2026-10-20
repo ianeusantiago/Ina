@@ -28,7 +28,7 @@ fn tail(s: &str) -> String {
 /// Run `checks` in order inside `worktree` (which must be inside `root`); stop at the first
 /// failure. Programs and args go through the execution policy; no shell is involved.
 pub fn run_checks(checks: &[Check], root: &Path, worktree: &Path) -> Outcome {
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let path_var = crate::policy::path_var();
     for check in checks {
         let name = check.display();
         let fail = |detail: String| Outcome::Failed {

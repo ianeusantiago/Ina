@@ -72,37 +72,15 @@ pub fn prompt(goal: &str, parts: &[Part]) -> (String, bool) {
 }
 
 pub fn args(prompt: &str) -> Vec<String> {
-    [
-        "-p",
-        prompt,
-        "--output-format",
-        "json",
-        "--json-schema",
-        REVIEW_SCHEMA,
-        "--tools",
-        "",
-        "--strict-mcp-config",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    crate::claude_json::args(prompt, REVIEW_SCHEMA)
 }
 
+#[cfg(test)]
 pub fn parse_output(stdout: &str) -> Result<Review, String> {
-    #[derive(Deserialize)]
-    struct Envelope {
-        #[serde(default)]
-        is_error: bool,
-        #[serde(default)]
-        result: Option<String>,
-        structured_output: Option<Review>,
-    }
-    let env: Envelope =
-        serde_json::from_str(stdout.trim()).map_err(|e| format!("unparseable output: {e}"))?;
-    if env.is_error {
-        return Err(env.result.unwrap_or_else(|| "unknown error".into()));
-    }
-    let r = env.structured_output.ok_or("no structured output")?;
+    validate(crate::claude_json::parse(stdout)?)
+}
+
+pub fn validate(r: Review) -> Result<Review, String> {
     if r.verdict != "ok" && r.verdict != "issues" {
         return Err(format!("unknown verdict {:?}", r.verdict));
     }

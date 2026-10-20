@@ -44,37 +44,16 @@ pub fn intent_prompt(request: &str) -> String {
 }
 
 pub fn intent_args(request: &str) -> Vec<String> {
-    [
-        "-p",
-        &intent_prompt(request),
-        "--output-format",
-        "json",
-        "--json-schema",
-        INTENT_SCHEMA,
-        "--tools",
-        "",
-        "--strict-mcp-config",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    crate::claude_json::args(&intent_prompt(request), INTENT_SCHEMA)
 }
 
+#[cfg(test)]
 pub fn parse_output(stdout: &str) -> Result<Intent, String> {
-    #[derive(Deserialize)]
-    struct Envelope {
-        #[serde(default)]
-        is_error: bool,
-        #[serde(default)]
-        result: Option<String>,
-        structured_output: Option<Intent>,
-    }
-    let env: Envelope =
-        serde_json::from_str(stdout.trim()).map_err(|e| format!("unparseable output: {e}"))?;
-    if env.is_error {
-        return Err(env.result.unwrap_or_else(|| "unknown error".into()));
-    }
-    let mut intent = env.structured_output.ok_or("no structured output")?;
+    validate(crate::claude_json::parse(stdout)?)
+}
+
+/// A "create" intent needs a safe folder name and a task; anything else must be "answer".
+pub fn validate(mut intent: Intent) -> Result<Intent, String> {
     if intent.action == "create" {
         intent.workspace_name = valid_name(&intent.workspace_name)?;
         if intent.task.trim().is_empty() {

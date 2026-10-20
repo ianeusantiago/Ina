@@ -429,62 +429,22 @@ pub fn orchestrator_args(prompt: String) -> Vec<String> {
 
 /// Args for the non-interactive planner run. No tools, no MCP: it can only answer.
 pub fn planner_args(request: &str) -> Vec<String> {
-    [
-        "-p",
-        &planner_prompt(request),
-        "--output-format",
-        "json",
-        "--json-schema",
-        PLAN_SCHEMA,
-        "--tools",
-        "",
-        "--strict-mcp-config",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    crate::claude_json::args(&planner_prompt(request), PLAN_SCHEMA)
 }
 
 /// Extract and validate the plan from `claude -p --output-format json` stdout.
+#[cfg(test)]
 pub fn parse_planner_output(stdout: &str) -> Result<Plan, PlanError> {
-    #[derive(Deserialize)]
-    struct Envelope {
-        #[serde(default)]
-        is_error: bool,
-        #[serde(default)]
-        result: Option<String>,
-        structured_output: Option<Plan>,
-    }
-    let env: Envelope = serde_json::from_str(stdout.trim())
-        .map_err(|e| PlanError::Planner(format!("unparseable output: {e}")))?;
-    if env.is_error {
-        return Err(PlanError::Planner(
-            env.result.unwrap_or_else(|| "unknown error".into()),
-        ));
-    }
-    let plan = env
-        .structured_output
-        .ok_or_else(|| PlanError::Planner("no structured output".into()))?;
+    let plan: Plan = crate::claude_json::parse(stdout).map_err(PlanError::Planner)?;
     plan.validate()?;
     Ok(plan)
 }
 
 /// Run the planner to completion (blocking) with a timeout. `program` comes from the policy.
 pub fn run_planner(spec: &crate::pty::SpawnSpec) -> Result<Plan, PlanError> {
-    let fail = |m: String| PlanError::Planner(m);
-    let mut child = crate::pty::piped_command(spec)
-        .spawn()
-        .map_err(|e| fail(format!("spawn: {e}")))?;
-    let (status, output) =
-        crate::pty::wait_output(&mut child, PLANNER_TIMEOUT).map_err(|e| fail(e.to_string()))?;
-    let status = status.ok_or_else(|| fail("timed out".into()))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    if !status.success() && stdout.trim().is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail = crate::pty::tail(&stderr, 500);
-        return Err(fail(format!("exit {:?}: {tail}", status.code())));
-    }
-    parse_planner_output(&stdout)
+    let plan: Plan = crate::claude_json::run(spec, PLANNER_TIMEOUT).map_err(PlanError::Planner)?;
+    plan.validate()?;
+    Ok(plan)
 }
 
 /// An approved plan, ready to spawn.

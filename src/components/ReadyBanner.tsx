@@ -120,41 +120,7 @@ export function ReadyBanner({
             <p className="text-[11px] text-muted">{t("report.writing")}</p>
           ))}
         {reviewing && <p className="mt-1 text-[11px] text-muted">{t("review.working")}</p>}
-        {review && (
-          <div
-            className={`mt-1.5 flex flex-col gap-1 rounded-lg px-3 py-2 text-[12.5px] ${
-              review.verdict === "ok" ? "bg-success/10" : "bg-warning/10"
-            }`}
-          >
-            <p className="font-semibold">
-              {review.verdict === "ok" ? t("review.ok") : t("review.issues")}
-            </p>
-            <p className="whitespace-pre-wrap text-fg-2">{review.summary}</p>
-            {review.findings.length > 0 && (
-              <ul className="flex flex-col gap-0.5">
-                {review.findings.map((f, i) => (
-                  <li key={i} className="flex gap-1.5">
-                    <span
-                      className={
-                        f.severity === "high"
-                          ? "text-danger"
-                          : f.severity === "medium"
-                            ? "text-warning"
-                            : "text-muted"
-                      }
-                    >
-                      ●
-                    </span>
-                    <span>
-                      <b>{f.agent}:</b> {f.problem}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {review.truncated && <p className="text-[11px] text-muted">{t("review.truncated")}</p>}
-          </div>
-        )}
+        {review && <ReviewCard review={review} />}
         {error && <p className={`text-xs ${errorText}`}>{error}</p>}
       </div>
       <div className="flex gap-2">
@@ -242,5 +208,45 @@ export function ReadyBanner({
         )}
       </div>
     </section>
+  );
+}
+
+/** The reviewer's answer: verdict, plain summary and findings by severity. */
+function ReviewCard({ review }: { review: Review }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className={`mt-1.5 flex flex-col gap-1 rounded-lg px-3 py-2 text-[12.5px] ${
+        review.verdict === "ok" ? "bg-success/10" : "bg-warning/10"
+      }`}
+    >
+      <p className="font-semibold">
+        {review.verdict === "ok" ? t("review.ok") : t("review.issues")}
+      </p>
+      <p className="whitespace-pre-wrap text-fg-2">{review.summary}</p>
+      {review.findings.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {review.findings.map((f, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span
+                className={
+                  f.severity === "high"
+                    ? "text-danger"
+                    : f.severity === "medium"
+                      ? "text-warning"
+                      : "text-muted"
+                }
+              >
+                ●
+              </span>
+              <span>
+                <b>{f.agent}:</b> {f.problem}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {review.truncated && <p className="text-[11px] text-muted">{t("review.truncated")}</p>}
+    </div>
   );
 }

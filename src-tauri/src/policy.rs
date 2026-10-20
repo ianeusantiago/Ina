@@ -96,12 +96,18 @@ pub fn simplify(p: PathBuf) -> PathBuf {
     }
 }
 
-/// Inherited variables a child must not see: everything `CLAUDE*` (the parent Claude Code
-/// session's ids, messaging socket and token). `ANTHROPIC_*` auth settings are kept.
+/// Inherited variables a child must not see: the parent Claude Code session's own `CLAUDE*`
+/// variables (ids, messaging socket, tokens; see `is_session_var`). Configuration such as
+/// `CLAUDE_CONFIG_DIR` and `ANTHROPIC_*` auth settings are kept.
 pub fn stripped_env(vars: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     vars.into_iter()
         .filter(|k| is_session_var(&k.to_string_lossy().to_ascii_uppercase()))
         .collect()
+}
+
+/// `stripped_env` applied to this process's environment: what every child must not inherit.
+pub fn child_env_remove() -> Vec<std::ffi::OsString> {
+    stripped_env(std::env::vars_os().map(|(k, _)| k))
 }
 
 /// Variables the parent Claude Code session sets for itself (ids, tokens, sockets). User
@@ -123,6 +129,19 @@ fn is_session_var(k: &str) -> bool {
                 .any(|w| k.contains(w)))
 }
 
+/// The `PATH` programs are resolved from (empty if unset).
+pub fn path_var() -> std::ffi::OsString {
+    std::env::var_os("PATH").unwrap_or_default()
+}
+
+/// The user's home folder (`USERPROFILE` on Windows, `HOME` elsewhere).
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+}
+
+/// Bounds every spawn's args: count, size and no NUL bytes.
 pub fn validate_args(args: &[String]) -> Result<(), PolicyError> {
     if args.len() > MAX_ARGS {
         return Err(PolicyError::BadArg(format!(
@@ -160,7 +179,7 @@ pub fn authorize(
         cwd: validate_cwd(workspace_root, cwd)?,
         cols: 80,
         rows: 24,
-        env_remove: stripped_env(std::env::vars_os().map(|(k, _)| k)),
+        env_remove: child_env_remove(),
     })
 }
 

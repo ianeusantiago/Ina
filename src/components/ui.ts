@@ -10,3 +10,5 @@ export const panelTitle = "text-[11px] font-semibold text-muted";
 export const errorText = "break-words text-danger";
 export const field =
   "rounded-md bg-panel text-fg shadow-[0_0_0_0.5px_var(--ina-separator)] outline-none transition focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--ina-accent)_35%,transparent)]";
+export const pillButton =
+  "aero-pill px-3 py-1 text-xs font-medium transition hover:bg-hover active:scale-[0.98] disabled:opacity-40 disabled:hover:bg-panel";
