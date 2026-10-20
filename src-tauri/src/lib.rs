@@ -788,22 +788,23 @@ async fn team_review(
 }
 
 /// Members of a team whose last conversation can be continued.
+/// Scans Claude's log folders, so it runs off the UI thread.
 #[tauri::command]
-fn team_resumable(
-    store: State<'_, Store>,
-    plans: State<'_, PlanStore>,
-    plan_id: u64,
-) -> Result<Vec<String>, String> {
-    let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
-    let mut ids = vec![plan::ORCHESTRATOR_ID.to_string()];
-    ids.extend(team.plan.agents.iter().map(|a| a.id.clone()));
-    let mut out = vec![];
-    for id in ids {
-        if resumable_session(&store, &team, plan_id, &id)?.is_some() {
-            out.push(id);
+async fn team_resumable(app: tauri::AppHandle, plan_id: u64) -> Result<Vec<String>, String> {
+    blocking(move || {
+        let (store, plans) = (app.state::<Store>(), app.state::<PlanStore>());
+        let team = plans.approved(&store, plan_id).map_err(|e| e.to_string())?;
+        let mut ids = vec![plan::ORCHESTRATOR_ID.to_string()];
+        ids.extend(team.plan.agents.iter().map(|a| a.id.clone()));
+        let mut out = vec![];
+        for id in ids {
+            if resumable_session(&store, &team, plan_id, &id)?.is_some() {
+                out.push(id);
+            }
         }
-    }
-    Ok(out)
+        Ok(out)
+    })
+    .await
 }
 
 /// Opens an interactive `claude` session for the orchestrator or one agent of an approved plan.
@@ -1701,18 +1702,14 @@ fn member(
     agent_id: &str,
 ) -> Result<(PathBuf, plan::AgentCli), String> {
     let team = plans.approved(store, plan_id).map_err(|e| e.to_string())?;
-    if agent_id == plan::ORCHESTRATOR_ID {
-        return Ok((
-            workspace_root(store, team.workspace_id)?,
-            plan::AgentCli::Claude,
-        ));
-    }
-    let agent = team.plan.agent(agent_id).map_err(|e| e.to_string())?;
-    let wt = team
-        .worktrees
-        .get(agent_id)
-        .ok_or("agent has no worktree")?;
-    Ok((wt.path.clone(), agent.cli))
+    let cli = if agent_id == plan::ORCHESTRATOR_ID {
+        plan::AgentCli::Claude
+    } else {
+        team.plan.agent(agent_id).map_err(|e| e.to_string())?.cli
+    };
+    let root = workspace_root(store, team.workspace_id)?;
+    let cwd = member_cwd(&root, &team, agent_id).ok_or("agent has no worktree")?;
+    Ok((cwd, cli))
 }
 
 /// What a team member did, from its CLI's session log; empty before its first session.
@@ -1734,9 +1731,11 @@ async fn agent_activity(
     .await
 }
 
-/// Type a line into a team member's live terminal (the interface's message box).
+/// Type a line into a team member's live terminal (the interface's message box). Async: the
+/// pause before Enter must not block the UI thread (sync commands run on it).
 #[tauri::command]
-fn agent_send(
+async fn agent_send(
+    app: tauri::AppHandle,
     pty: State<'_, PtyManager>,
     store: State<'_, Store>,
     plans: State<'_, PlanStore>,
@@ -1755,9 +1754,15 @@ fn agent_send(
     pty.write(&session, line.as_bytes())
         .map_err(|e| e.to_string())?;
     // Enter on its own: the TUIs treat text and Enter arriving together as a paste.
-    std::thread::sleep(std::time::Duration::from_millis(80));
-    pty.write(&session, b"\r").map_err(|e| e.to_string())
+    blocking(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        app.state::<PtyManager>()
+            .write(&session, b"\r")
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
+
 pub const USAGE_SINK_FLAG: &str = usage::SINK_FLAG;
 
 pub fn usage_sink(file: &std::path::Path) {
