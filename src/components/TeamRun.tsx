@@ -13,6 +13,7 @@ import { TaskPanel, useTeamTasks } from "./TaskPanel";
 import { type PendingPermission } from "./TerminalPane";
 import { AgentTerminal } from "./AgentTerminal";
 import { parseSplit, Splitter } from "./Splitter";
+import { Segmented } from "./Segmented";
 
 const AUTO_START_KEY = "ina.autoStart";
 
@@ -163,23 +164,14 @@ export function TeamRun({
         <div className="min-w-0 flex-1">
           <IntegrationBar planId={id} />
         </div>
-        <div
-          role="radiogroup"
-          aria-label={t("activity.view")}
-          className="aero-pill flex shrink-0 p-0.5 text-[12px] font-medium"
-        >
-          {VIEWS.map((v) => (
-            <button
-              key={v}
-              role="radio"
-              aria-checked={mode === v}
-              onClick={() => changeMode(v)}
-              className={`rounded-full px-3 py-1 transition ${mode === v ? "aero-btn" : "text-fg-2 hover:text-fg"}`}
-            >
-              <span className="relative">{t(`activity.views.${v}`)}</span>
-            </button>
-          ))}
-        </div>
+        <Segmented
+          variant="pill"
+          label={t("activity.view")}
+          options={VIEWS}
+          value={mode}
+          onChange={changeMode}
+          optionLabel={(v) => t(`activity.views.${v}`)}
+        />
       </div>
       {/* Both views stay mounted: switching keeps the selected member, drafts and sessions. */}
       {mode === "preview" && <PreviewView workspaceId={workspaceId} />}

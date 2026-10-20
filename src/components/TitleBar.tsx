@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { Segmented } from "./Segmented";
 import { LANGUAGES } from "../i18n";
 import { usePersistedState } from "../lib/usePersistedState";
 import { applyTheme, parseTheme, THEME_KEY, THEMES } from "../lib/theme";
@@ -34,27 +35,14 @@ export function TitleBar({ language, languageLabel, onLanguage }: Props) {
 
       <span className="flex-1" />
 
-      <div
-        role="radiogroup"
-        aria-label={t("app.theme")}
-        className="flex rounded-md bg-hover p-0.5 text-[11px] font-medium"
-      >
-        {THEMES.map((th) => (
-          <button
-            key={th}
-            role="radio"
-            aria-checked={theme === th}
-            onClick={() => setTheme(th)}
-            className={`rounded-[5px] px-2.5 py-0.5 transition ${
-              theme === th
-                ? "bg-panel text-fg shadow-[0_0_0_0.5px_var(--ina-separator),0_1px_2px_rgb(0_0_0/0.1)]"
-                : "text-fg-2 hover:text-fg"
-            }`}
-          >
-            {t(`app.themes.${th}`)}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        variant="tab"
+        label={t("app.theme")}
+        options={THEMES}
+        value={theme}
+        onChange={setTheme}
+        optionLabel={(th) => t(`app.themes.${th}`)}
+      />
 
       <label className="flex items-center gap-2 text-[11px] font-medium text-muted">
         {languageLabel}
