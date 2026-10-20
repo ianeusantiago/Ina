@@ -36,7 +36,7 @@ pub fn config_flags(config: &Path, api_key_set: bool) -> Result<(bool, bool), St
 
 fn version(program: &Path) -> Result<String, String> {
     let mut cmd = Command::new(program);
-    for k in policy::stripped_env(std::env::vars_os().map(|(k, _)| k)) {
+    for k in policy::child_env_remove() {
         cmd.env_remove(k);
     }
     let mut child = cmd

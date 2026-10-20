@@ -278,7 +278,7 @@ async fn workspace_create(store: State<'_, Store>, name: String) -> Result<Works
     let base = home_base()?;
     let path_var = policy::path_var();
     let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
-    let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
+    let env_remove = policy::child_env_remove();
     let dir = blocking(move || {
         let dir = home::create_dir(&base, &name)?;
         worktree::Git::new(exe, dir.clone(), env_remove)
@@ -296,7 +296,7 @@ fn git_for(store: &Store, workspace_id: i64) -> Result<worktree::Git, String> {
     let root = policy::simplify(root.canonicalize().map_err(|e| e.to_string())?);
     let path_var = policy::path_var();
     let exe = policy::resolve_program(Program::Git, &path_var).map_err(|e| e.to_string())?;
-    let env_remove = policy::stripped_env(std::env::vars_os().map(|(k, _)| k));
+    let env_remove = policy::child_env_remove();
     Ok(worktree::Git::new(exe, root, env_remove))
 }
 
@@ -1897,6 +1897,7 @@ fn tick_loop(app: &tauri::AppHandle) {
                     return;
                 }
             };
+            let mut open = std::collections::HashSet::new();
             for ws in workspaces {
                 let teams = match plans.open_teams(&store, ws.id) {
                     Ok(t) => t,
@@ -1906,6 +1907,7 @@ fn tick_loop(app: &tauri::AppHandle) {
                     }
                 };
                 for team in teams {
+                    open.insert(team.id);
                     if plans.is_cleaning(team.id) {
                         continue;
                     }
@@ -1941,6 +1943,10 @@ fn tick_loop(app: &tauri::AppHandle) {
                     }
                 }
             }
+            // Closed or archived teams: forget what the tick remembered about them.
+            last_errors.retain(|id, _| open.contains(id));
+            last_tasks.retain(|id, _| open.contains(id));
+            orphans.retain(|(id, _)| open.contains(id));
         }));
         if tick.is_err() {
             eprintln!("tick panicked; continuing");

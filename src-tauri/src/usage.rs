@@ -138,7 +138,7 @@ pub fn claude_settings(exe: &Path, file: &Path) -> Option<String> {
 /// Ask `codex app-server` for the account's limits; the child is killed afterwards.
 pub fn read_codex(exe: &Path) -> Result<Usage, String> {
     let mut cmd = Command::new(exe);
-    for k in crate::policy::stripped_env(std::env::vars_os().map(|(k, _)| k)) {
+    for k in crate::policy::child_env_remove() {
         cmd.env_remove(k);
     }
     #[cfg(windows)]
