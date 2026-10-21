@@ -4,6 +4,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versões s
 
 ## [Não lançado]
 
+### Corrigido
+
+- O app instalado abria e fechava janelas pretas de terminal ao falar com a Início ou com os agentes (Claude, git e verificações rodam agora sem janela).
+
 ## [0.1.1] — 2026-10-20
 
 Revisão de código e correções; primeira versão entregue pela atualização automática.
