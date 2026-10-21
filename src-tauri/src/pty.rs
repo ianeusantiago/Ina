@@ -91,6 +91,7 @@ pub fn piped_command(spec: &SpawnSpec) -> std::process::Command {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    crate::policy::hide_window(&mut cmd);
     cmd
 }
 

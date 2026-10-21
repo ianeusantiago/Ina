@@ -51,6 +51,7 @@ impl Git {
 
     fn run_in(&self, dir: &Path, args: &[&str]) -> Result<String, WorktreeError> {
         let mut cmd = Command::new(&self.exe);
+        crate::policy::hide_window(&mut cmd);
         for k in &self.env_remove {
             cmd.env_remove(k);
         }

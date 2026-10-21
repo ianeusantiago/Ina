@@ -141,8 +141,7 @@ pub fn read_codex(exe: &Path) -> Result<Usage, String> {
     for k in crate::policy::child_env_remove() {
         cmd.env_remove(k);
     }
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // no console
+    crate::policy::hide_window(&mut cmd);
     let mut child = cmd
         .arg("app-server")
         .stdin(Stdio::piped())

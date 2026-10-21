@@ -105,6 +105,15 @@ pub fn stripped_env(vars: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<s
         .collect()
 }
 
+/// Keep a background child from flashing its own console window: the release app has no
+/// console, so Windows would otherwise open one for every `claude`, `git` or check it runs.
+pub fn hide_window(cmd: &mut std::process::Command) {
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(cmd, 0x0800_0000); // CREATE_NO_WINDOW
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
 /// `stripped_env` applied to this process's environment: what every child must not inherit.
 pub fn child_env_remove() -> Vec<std::ffi::OsString> {
     stripped_env(std::env::vars_os().map(|(k, _)| k))
