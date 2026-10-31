@@ -19,6 +19,12 @@
 
 INA is a Windows desktop app that assembles and coordinates a **team of AI agents**: one **orchestrator** plus several **agents**, each running the real [Claude Code](https://docs.claude.com/claude-code) CLI in its own terminal and its own copy of the project (git worktree). Describe what you want, approve the plan, and follow everything in a chat-like interface.
 
+<p align="center">
+  <img src="docs/screenshots/equipe-escuro.png" alt="A finished INA team: progress panel, plain-language final summary and the chat with the agent" width="760" />
+</p>
+
+**By the numbers:** about 8k lines of Rust and 4.5k of TypeScript, 87 Rust tests (unit and integration with real git), Vitest UI tests, Playwright E2E and Windows CI on every PR.
+
 ## Download
 
 1. Get **`INA_x.y.z_x64-setup.exe`** from **[Releases](https://github.com/ianeusantiago/Ina/releases/latest)** and install it.
@@ -33,6 +39,25 @@ INA is a Windows desktop app that assembles and coordinates a **team of AI agent
 2. **Approve.** Nothing runs before you approve. Each agent gets its own copy of the project.
 3. **Follow along in the Interface.** Chat with the orchestrator and each agent. Permission requests show up as **Allow / Always allow / Deny** cards.
 4. **Get the result.** When everyone is done, INA writes a plain summary (what was done, how to try it), offers an AI **review**, and merges the work after a conflict-free preview.
+
+```mermaid
+flowchart LR
+    A["Request in plain language"] --> B["Team plan<br/>roles, tasks, dependencies"]
+    B --> C{"You approve?"}
+    C -- no --> B
+    C -- yes --> D["Agents in parallel<br/>1 terminal + 1 git worktree each"]
+    D --> E["Real verification<br/>tests on a clean checkout"]
+    E --> F["AI reviewer<br/>reads each agent's diff"]
+    F --> G["Merge preview"]
+    G --> H["Integration<br/>on your click"]
+```
+
+## Screenshots
+
+| Home: ask in plain language | Team: follow along and merge |
+| --- | --- |
+| ![Home screen, light theme](docs/screenshots/inicio-claro.png) | ![Team view, light theme](docs/screenshots/equipe-claro.png) |
+| ![Home screen, dark theme](docs/screenshots/inicio-escuro.png) | ![Team view, dark theme](docs/screenshots/equipe-escuro.png) |
 
 ## Highlights
 

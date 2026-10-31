@@ -18,6 +18,8 @@
 <p align="center">
   <a href="#baixar">Baixar</a> ·
   <a href="#como-funciona">Como funciona</a> ·
+  <a href="#telas">Telas</a> ·
+  <a href="#arquitetura">Arquitetura</a> ·
   <a href="#recursos">Recursos</a> ·
   <a href="#sobre-o-visual-frutiger-aero">Visual</a> ·
   <a href="#segurança">Segurança</a> ·
@@ -28,6 +30,14 @@
 ---
 
 O INA é um app desktop para Windows que monta e coordena uma **equipe de agentes de IA**: um **orquestrador** e vários **agentes**, cada um rodando o [Claude Code](https://docs.claude.com/claude-code) de verdade, no próprio terminal e na própria cópia do projeto (git worktree). Você descreve o que quer em português, aprova o plano e acompanha tudo numa interface de conversa — sem precisar abrir o terminal, a menos que queira.
+
+<p align="center">
+  <img src="docs/screenshots/equipe-escuro.png" alt="Equipe do INA concluída: painel de progresso, resumo final em linguagem simples e conversa com o agente" width="760" />
+</p>
+
+<p align="center"><em>Uma equipe que terminou: progresso no topo, resumo do que foi feito e de como testar, e a conversa com o agente.</em></p>
+
+**Em números:** cerca de 8 mil linhas de Rust e 4,5 mil de TypeScript, 87 testes em Rust (unitários e de integração com git real), testes de interface com Vitest, E2E com Playwright e CI no Windows a cada PR.
 
 ## Baixar
 
@@ -45,10 +55,48 @@ O INA é um app desktop para Windows que monta e coordena uma **equipe de agente
 
 ## Como funciona
 
+```mermaid
+flowchart LR
+    A["Pedido em português<br/>(tela Início)"] --> B["Plano da equipe<br/>papéis, tarefas, dependências"]
+    B --> C{"Você aprova?"}
+    C -- não --> B
+    C -- sim --> D["Agentes em paralelo<br/>1 terminal + 1 git worktree cada"]
+    D --> E["Verificação real<br/>testes num checkout limpo"]
+    E --> F["Revisor por IA<br/>lê o diff de cada agente"]
+    F --> G["Prévia do merge"]
+    G --> H["Integração no projeto<br/>com o seu clique"]
+```
+
 1. **Peça na tela Início.** Ex.: _“Crie um workspace chamado Loja e faça uma página de produtos com 2 agentes.”_ O INA cria a pasta do projeto, monta a equipe e mostra o plano. Também dá para começar por um **modelo** (Site, API + testes, Corrigir bug, Melhorar código).
 2. **Aprove.** Nada roda antes da sua aprovação. Cada agente ganha sua própria cópia do projeto, então ninguém atropela ninguém.
 3. **Acompanhe na Interface.** Converse com o orquestrador e com cada agente como num chat. Quando um agente pede permissão para rodar algo, aparece um cartão com **Permitir / Permitir sempre / Negar** (e “Ver detalhes”).
 4. **Receba o resultado.** Quando todos terminam, o INA mostra um resumo simples (“o que foi feito” e “como testar”), oferece uma **revisão** por IA e junta o trabalho no seu projeto com um clique — depois de mostrar uma prévia sem conflitos.
+
+## Telas
+
+| Início: peça em português | Equipe: acompanhe e integre |
+| --- | --- |
+| ![Tela Início no tema claro, com o resumo da última equipe e os modelos Site, API + testes, Corrigir bug e Melhorar código](docs/screenshots/inicio-claro.png) | ![Equipe no tema claro, com o painel de progresso, o resumo final e a conversa com o agente](docs/screenshots/equipe-claro.png) |
+| ![Tela Início no tema escuro](docs/screenshots/inicio-escuro.png) | ![Equipe no tema escuro](docs/screenshots/equipe-escuro.png) |
+
+## Arquitetura
+
+```mermaid
+flowchart TB
+    UI["Interface<br/>React + TypeScript, xterm.js"] -- "IPC do Tauri" --> BE
+    subgraph BE["Backend em Rust (Tauri 2) — única autoridade sobre processos"]
+        P["policy.rs<br/>allowlist e validação"]
+        PL["plan.rs<br/>plano e prompts"]
+        PT["pty.rs<br/>terminais ConPTY"]
+        WT["worktree.rs<br/>worktrees, merge e diff"]
+        TV["tasks.rs / verify.rs<br/>tarefas e verificação"]
+        DB[("store.rs<br/>SQLite")]
+    end
+    PT --> O["Orquestrador<br/>Claude Code"]
+    PT --> AG["Agentes<br/>Claude Code ou Codex"]
+    AG <-->|".ina/task.json, result.json,<br/>outbox e inbox"| TV
+    WT --> GIT[("Repositório git<br/>1 worktree por agente")]
+```
 
 ## Recursos
 
