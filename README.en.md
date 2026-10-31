@@ -25,6 +25,16 @@ INA is a Windows desktop app that assembles and coordinates a **team of AI agent
 
 **By the numbers:** about 8k lines of Rust and 4.5k of TypeScript, 87 Rust tests (unit and integration with real git), Vitest UI tests, Playwright E2E and Windows CI on every PR.
 
+## Why I built INA
+
+INA was born from a pain point. Most agent orchestrators only show terminals: the conversation with the orchestrator and the agents happens there, among values, logs and technical terms that are hard to follow for someone who is just starting. There is no comfortable place to talk to them, like the Claude, ChatGPT or Gemini desktop apps.
+
+I wanted anyone to be able to use an agent orchestrator, even without AI experience, without knowing prompt engineering and without understanding everything that happens behind the scenes. So in INA you create a project with a short request, as in the GIF above, and chat with the orchestrator and each agent. You can see each agent's task, the next tasks and whether the orchestrator has already handed the work over. That visibility builds a closer connection with the AI and helps you understand what it is doing.
+
+I also added features I missed in the orchestrators I used, with a look I really like: Frutiger Aero.
+
+I believe agent orchestrators will become far better known, because they suit large projects, and much more accessible to people who don't use them yet. INA is my bet on that path.
+
 ## Download
 
 1. Get **`INA_x.y.z_x64-setup.exe`** from **[Releases](https://github.com/ianeusantiago/Ina/releases/latest)** and install it.

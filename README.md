@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <a href="#por-que-fiz-o-ina">Por que fiz</a> ·
   <a href="#baixar">Baixar</a> ·
   <a href="#como-funciona">Como funciona</a> ·
   <a href="#telas">Telas</a> ·
@@ -38,6 +39,16 @@ O INA é um app desktop para Windows que monta e coordena uma **equipe de agente
 <p align="center"><em>Uma equipe de verdade montando a página de cardápio de uma confeitaria: pedido, plano, aprovação e os agentes trabalhando (sequência de capturas do app).</em></p>
 
 **Em números:** cerca de 8 mil linhas de Rust e 4,5 mil de TypeScript, 87 testes em Rust (unitários e de integração com git real), testes de interface com Vitest, E2E com Playwright e CI no Windows a cada PR.
+
+## Por que fiz o INA
+
+O INA nasceu de uma dor. A maioria dos orquestradores de agentes mostra só terminais: a conversa com o orquestrador e com os agentes acontece ali, no meio de valores, logs e termos técnicos que são difíceis de entender para quem está começando. Não há um lugar confortável para conversar com eles, como nos apps de desktop do Claude, do ChatGPT ou do Gemini.
+
+Eu queria que qualquer pessoa conseguisse usar um orquestrador de agentes, mesmo sem experiência com IA, sem saber engenharia de prompt e sem entender tudo o que acontece por trás. Por isso, no INA você cria o projeto com um pedido curto, como no GIF acima, e conversa com o orquestrador e com cada agente numa interface de chat. Dá para ver a tarefa de cada um, as próximas tarefas e se o orquestrador já repassou o trabalho. Essa visibilidade cria uma conexão maior com a IA e ajuda a entender o que ela está fazendo.
+
+Também quis incluir funcionalidades que eu sentia falta nos orquestradores que usava, num visual de que eu gosto muito, o Frutiger Aero.
+
+Acredito que os orquestradores de agentes vão ficar cada vez mais conhecidos, porque servem para projetos grandes, e que vão ficar muito mais acessíveis para quem ainda não os usa. O INA é a minha aposta nesse caminho.
 
 ## Baixar
 
