@@ -20,7 +20,7 @@
 INA is a Windows desktop app that assembles and coordinates a **team of AI agents**: one **orchestrator** plus several **agents**, each running the real [Claude Code](https://docs.claude.com/claude-code) CLI in its own terminal and its own copy of the project (git worktree). Describe what you want, approve the plan, and follow everything in a chat-like interface.
 
 <p align="center">
-  <img src="docs/screenshots/equipe-escuro.png" alt="A finished INA team: progress panel, plain-language final summary and the chat with the agent" width="760" />
+  <img src="docs/screenshots/demo.gif" alt="INA demo: request on the Home screen, team plan with an orchestrator and 2 agents, team started and the agents' replies" width="860" />
 </p>
 
 **By the numbers:** about 8k lines of Rust and 4.5k of TypeScript, 87 Rust tests (unit and integration with real git), Vitest UI tests, Playwright E2E and Windows CI on every PR.
@@ -54,10 +54,13 @@ flowchart LR
 
 ## Screenshots
 
-| Home: ask in plain language | Team: follow along and merge |
+| Home: ask in plain language | Plan: review before approving |
 | --- | --- |
-| ![Home screen, light theme](docs/screenshots/inicio-claro.png) | ![Team view, light theme](docs/screenshots/equipe-claro.png) |
-| ![Home screen, dark theme](docs/screenshots/inicio-escuro.png) | ![Team view, dark theme](docs/screenshots/equipe-escuro.png) |
+| ![Home screen with a request for a menu page with 2 agents](docs/screenshots/inicio-escuro.png) | ![Team plan with the orchestrator, two agents and the Approve and start button](docs/screenshots/plano-escuro.png) |
+
+| Finished team (dark theme) | Finished team (light theme) |
+| --- | --- |
+| ![Finished team, dark theme](docs/screenshots/equipe-escuro.png) | ![Finished team, light theme](docs/screenshots/equipe-claro.png) |
 
 ## Highlights
 
