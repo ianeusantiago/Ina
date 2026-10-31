@@ -32,10 +32,10 @@
 O INA é um app desktop para Windows que monta e coordena uma **equipe de agentes de IA**: um **orquestrador** e vários **agentes**, cada um rodando o [Claude Code](https://docs.claude.com/claude-code) de verdade, no próprio terminal e na própria cópia do projeto (git worktree). Você descreve o que quer em português, aprova o plano e acompanha tudo numa interface de conversa — sem precisar abrir o terminal, a menos que queira.
 
 <p align="center">
-  <img src="docs/screenshots/equipe-escuro.png" alt="Equipe do INA concluída: painel de progresso, resumo final em linguagem simples e conversa com o agente" width="760" />
+  <img src="docs/screenshots/demo.gif" alt="Demonstração do INA: pedido em português na tela Início, plano da equipe com orquestrador e 2 agentes, equipe iniciada e respostas dos agentes" width="860" />
 </p>
 
-<p align="center"><em>Uma equipe que terminou: progresso no topo, resumo do que foi feito e de como testar, e a conversa com o agente.</em></p>
+<p align="center"><em>Uma equipe de verdade montando a página de cardápio de uma confeitaria: pedido, plano, aprovação e os agentes trabalhando (sequência de capturas do app).</em></p>
 
 **Em números:** cerca de 8 mil linhas de Rust e 4,5 mil de TypeScript, 87 testes em Rust (unitários e de integração com git real), testes de interface com Vitest, E2E com Playwright e CI no Windows a cada PR.
 
@@ -74,10 +74,13 @@ flowchart LR
 
 ## Telas
 
-| Início: peça em português | Equipe: acompanhe e integre |
+| Início: peça em português | Plano: revise antes de aprovar |
 | --- | --- |
-| ![Tela Início no tema claro, com o resumo da última equipe e os modelos Site, API + testes, Corrigir bug e Melhorar código](docs/screenshots/inicio-claro.png) | ![Equipe no tema claro, com o painel de progresso, o resumo final e a conversa com o agente](docs/screenshots/equipe-claro.png) |
-| ![Tela Início no tema escuro](docs/screenshots/inicio-escuro.png) | ![Equipe no tema escuro](docs/screenshots/equipe-escuro.png) |
+| ![Tela Início com o pedido de uma página de cardápio com 2 agentes](docs/screenshots/inicio-escuro.png) | ![Plano da equipe com orquestrador, Agente de Estrutura e Agente Visual, e o botão Aprovar e começar](docs/screenshots/plano-escuro.png) |
+
+| Equipe concluída (tema escuro) | Equipe concluída (tema claro) |
+| --- | --- |
+| ![Equipe concluída no tema escuro, com o painel de progresso, o resumo final e a conversa com o agente](docs/screenshots/equipe-escuro.png) | ![Equipe concluída no tema claro](docs/screenshots/equipe-claro.png) |
 
 ## Arquitetura
 
